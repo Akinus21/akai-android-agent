@@ -23,6 +23,18 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+      - name: Set ANDROID_NDK_HOME
+        run: |
+          NDK_DIR=$(ls -d ${ANDROID_HOME}/ndk/2* | sort -V | tail -1)
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+          echo "NDK dir: $NDK_DIR"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -32,7 +44,7 @@ jobs:
         run: cargo install cargo-ndk
 
       - name: Build Rust library
-        run: cd rust && cargo ndk -t arm64-v8a -t armeabi-v7a build --release
+        run: cd rust && cargo ndk -t arm64-v8a -t armeabi-v7a build --release 2>&1 | tee /tmp/rust-build.log.txt
 
       - name: Copy native libraries
         run: |
@@ -41,11 +53,11 @@ jobs:
           cp rust/target/aarch64-linux-android/release/libakai_tunnel.so app/src/main/jniLibs/arm64-v8a/
           cp rust/target/armv7-linux-androideabi/release/libakai_tunnel.so app/src/main/jniLibs/armeabi-v7a/
 
-      - name: Make gradlew executable
-        run: chmod +x gradlew || true
+      - name: Setup Gradle
+        run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug || ./gradlew assembleDebug
+        run: ./gradlew assembleDebug 2>&1 | tee /tmp/gradle-build-log.txt
 
       - name: Compute version tag
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -75,8 +87,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
         run: |
-          git config user.email "iron-bot@akinus21.com"
-          git config user.name "Iron Bot"
+          git config user.email "aktags-bot@akinus21.com"
+          git config user.name "AkTags Bot"
           git remote set-url origin \
             "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
           TAG="${{ steps.tag.outputs.new_tag }}"
@@ -123,6 +135,15 @@ jobs:
           WEBHOOK_HMAC_SECRET: ${{ secrets.WEBHOOK_HMAC_SECRET }}
         run: |
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ERROR_TEXT=""
+          for LOG in /tmp/rust-build-log.txt /tmp/gradle-build-log.txt; do
+            if [ -f "$LOG" ]; then
+              TAIL=$(tail -100 "$LOG" 2>/dev/null || echo "")
+              if [ -n "$TAIL" ]; then
+                ERROR_TEXT="${ERROR_TEXT}--- $(basename $LOG) ---\n${TAIL}\n\n"
+              fi
+            fi
+          done
           PAYLOAD=$(jq -cn \
             --arg event   "build_failure" \
             --arg repo    "${{ github.repository }}" \
@@ -130,7 +151,8 @@ jobs:
             --arg sha     "${{ github.sha }}" \
             --arg ref     "${{ github.ref_name }}" \
             --arg actor   "${{ github.actor }}" \
-            '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor}')
+            --arg error   "$ERROR_TEXT" \
+            '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor,error:$error}')
           SIG=$(printf '%s' "$PAYLOAD" | \
             openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_SECRET" | awk '{print "sha256="$2}')
           curl -fsSL -X POST \
