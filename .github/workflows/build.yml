@@ -85,6 +85,31 @@ jobs:
           cp rust/target/armv7-linux-androideabi/release/libakai_tunnel_android.so app/src/main/jniLibs/armeabi-v7a/
           ls -la app/src/main/jniLibs/*/libakai_tunnel_android.so
 
+      - name: Build rpc-server for Android arm64
+        run: |
+          set -o pipefail
+          LLAMACPP_VERSION=a8681a0
+          git clone https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp
+          cd /tmp/llama.cpp
+          git checkout $LLAMACPP_VERSION
+          mkdir build-android && cd build-android
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-29 \
+            -DGGML_RPC=ON \
+            -DGGML_CUDA=OFF \
+            -DGGML_VULKAN=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_CURL=OFF \
+          cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt | tail -5
+          ls -la bin/rpc-server 2>/dev/null || ls -la bin/llama-rpc-server 2>/dev/null || { echo "rpc-server not found"; find . -name 'rpc-server' -o -name 'llama-rpc-server' 2>/dev/null; exit 1; }
+          mkdir -p $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a
+          cp bin/rpc-server $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server 2>/dev/null || \
+          cp bin/llama-rpc-server $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server 2>/dev/null
+          ls -la $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server
+
       - name: Setup Gradle
         run: chmod +x gradlew
 
@@ -156,6 +181,9 @@ jobs:
             echo ""
             echo "=== Gradle build ==="
             tail -100 /tmp/gradle-build-log.txt 2>/dev/null || echo "(no gradle log)"
+            echo ""
+            echo "=== rpc-server build ==="
+            tail -80 /tmp/rpc-build.txt 2>/dev/null || echo "(no rpc-server log)"
             echo ""
             echo "=== Built .so files ==="
             find rust/target -name 'libakai_tunnel_android.so' -ls 2>/dev/null || echo "(none found)"
