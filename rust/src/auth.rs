@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use ed25519_dalek::Signer;
 use std::path::PathBuf;
 
 fn keypair_path(keypair_dir: &str) -> (PathBuf, PathBuf) {
