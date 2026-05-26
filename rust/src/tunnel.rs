@@ -83,8 +83,8 @@ impl TunnelClient {
 
         loop {
             match self.connect_and_serve(&connector).await {
-                Ok(()) => crate::alog!(crate::LOG_INFO, "tunnel disconnected, reconnecting in 5s..."),
-                Err(e) => crate::alog!(crate::LOG_ERROR, "tunnel error: {e}, reconnecting in 5s..."),
+                Ok(()) => alog!(INFO, "tunnel disconnected, reconnecting in 5s..."),
+                Err(e) => alog!(ERROR, "tunnel error: {e}, reconnecting in 5s..."),
             }
             self.conns.lock().await.clear();
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -96,14 +96,14 @@ impl TunnelClient {
         let rpc_port = self.rpc_port;
         let conns = self.conns.clone();
 
-        crate::alog!(crate::LOG_INFO, "tunnel: connecting to {}:{}...", server_host, self.server_port);
+        alog!(INFO, "tunnel: connecting to {}:{}...", server_host, self.server_port);
 
         let domain = ServerName::try_from(server_host.clone())
             .map_err(|e| anyhow::anyhow!("invalid server name: {e}"))?;
 
         let tcp = TcpStream::connect((&*server_host, self.server_port)).await
             .context("TCP connect failed")?;
-        crate::alog!(crate::LOG_INFO, "tunnel: TCP connected to {}:{}", server_host, self.server_port);
+        alog!(INFO, "tunnel: TCP connected to {}:{}", server_host, self.server_port);
 
         let tls = connector.connect(domain, tcp).await
             .context("TLS handshake failed")?;
@@ -121,7 +121,7 @@ impl TunnelClient {
         writer.write_all(&handshake).await?;
         writer.flush().await?;
 
-        crate::alog!(crate::LOG_INFO, "tunnel connected {}:{}", server_host, self.server_port);
+        alog!(INFO, "tunnel connected {}:{}", server_host, self.server_port);
 
         let writer = Arc::new(Mutex::new(writer));
 
@@ -151,11 +151,11 @@ impl TunnelClient {
                         conns.lock().await.insert(conn_id, ConnState { write_tx: write_tx.clone() });
 
                         let active = conns.lock().await.len();
-                        crate::alog!(crate::LOG_INFO, "job received: inference conn #{conn_id} (active: {active})");
+                        alog!(INFO, "job received: inference conn #{conn_id} (active: {active})");
 
                         tokio::spawn(async move {
                             if let Err(e) = serve_conn(conn_id, rpc_port, w, c, write_rx).await {
-                                crate::alog!(crate::LOG_ERROR, "conn {} ended: {e}", conn_id);
+                                alog!(ERROR, "conn {} ended: {e}", conn_id);
                             }
                         });
                     }
@@ -179,7 +179,7 @@ impl TunnelClient {
                     PONG => {}
 
                     _ => {
-                        crate::alog!(crate::LOG_ERROR, "unknown frame type {} len={}", frame.msg_type, frame.payload.len());
+                        alog!(ERROR, "unknown frame type {} len={}", frame.msg_type, frame.payload.len());
                     }
                 }
             }
@@ -239,7 +239,7 @@ async fn serve_conn(
     }
 
     conns.lock().await.remove(&conn_id);
-    crate::alog!(crate::LOG_INFO, "job done: inference conn #{conn_id} closed");
+    alog!(INFO, "job done: inference conn #{conn_id} closed");
     Ok(())
 }
 
