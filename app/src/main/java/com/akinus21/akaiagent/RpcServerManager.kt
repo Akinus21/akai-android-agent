@@ -57,12 +57,8 @@ object RpcServerManager {
     fun start(context: Context, port: Int): Process {
         stop()
         val binary = ensureBinary(context)
-        val gpuBackend = detectGpuBackend()
 
         val cmd = mutableListOf(binary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
-        if (gpuBackend != "cpu") {
-            cmd.addAll(listOf("--gpu", gpuBackend))
-        }
 
         Log.i(TAG, "Starting rpc-server: ${cmd.joinToString(" ")}")
         val pb = ProcessBuilder(cmd)
@@ -70,7 +66,13 @@ object RpcServerManager {
             .directory(context.filesDir)
 
         val env = pb.environment()
-        env["LD_LIBRARY_PATH"] = "${context.applicationInfo.nativeLibraryDir}:${env.get("LD_LIBRARY_PATH") ?: ""}"
+        val ldPath = mutableListOf(context.applicationInfo.nativeLibraryDir)
+        val systemLibs = listOf("/system/lib64", "/system/lib", "/vendor/lib64", "/vendor/lib")
+        for (dir in systemLibs) {
+            if (java.io.File(dir).exists()) ldPath.add(dir)
+        }
+        ldPath.add(env.get("LD_LIBRARY_PATH") ?: "")
+        env["LD_LIBRARY_PATH"] = ldPath.joinToString(":")
 
         val proc = pb.start()
         process = proc
@@ -95,41 +97,5 @@ object RpcServerManager {
 
     fun isRunning(): Boolean {
         return process?.isAlive == true
-    }
-
-    private fun detectGpuBackend(): String {
-        if (hasAdrenoGpu()) return "adreno"
-        if (hasMaliGpu()) return "mali"
-        return "cpu"
-    }
-
-    private fun hasAdrenoGpu(): Boolean {
-        val files = listOf(
-            "/sys/class/kgsl/kgsl-3d0/gpu_model",
-            "/sys/class/kgsl/kgsl-3d0/device/of_node/compatible"
-        )
-        for (f in files) {
-            try {
-                val content = File(f).readText().lowercase()
-                if (content.contains("adreno") || content.contains("qcom")) return true
-            } catch (_: Exception) {}
-        }
-        val gpuRenderer = android.os.Build.HARDWARE.lowercase()
-        return gpuRenderer.contains("adreno") || gpuRenderer.contains("qcom")
-    }
-
-    private fun hasMaliGpu(): Boolean {
-        val files = listOf(
-            "/sys/class/misc/mali0/device/of_node/compatible",
-            "/sys/class/gpu/gpu_model"
-        )
-        for (f in files) {
-            try {
-                val content = File(f).readText().lowercase()
-                if (content.contains("mali")) return true
-            } catch (_: Exception) {}
-        }
-        val gpuRenderer = android.os.Build.HARDWARE.lowercase()
-        return gpuRenderer.contains("mali") || gpuRenderer.contains("arm")
     }
 }

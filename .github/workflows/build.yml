@@ -89,6 +89,7 @@ jobs:
         run: |
           set -o pipefail
           LLAMACPP_VERSION=a8681a0
+          sudo apt-get install -yq glslc 2>/dev/null || true
           git clone https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp
           cd /tmp/llama.cpp
           git checkout $LLAMACPP_VERSION
@@ -100,7 +101,7 @@ jobs:
             -DANDROID_PLATFORM=android-29 \
             -DGGML_RPC=ON \
             -DGGML_CUDA=OFF \
-            -DGGML_VULKAN=OFF \
+            -DGGML_VULKAN=ON \
             -DBUILD_SHARED_LIBS=OFF \
             -DLLAMA_CURL=OFF \
           cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt | tail -5
