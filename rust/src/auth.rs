@@ -30,16 +30,13 @@ pub fn ensure_keypair_android(keypair_dir: &str) -> Result<(String, String)> {
     let signing_key = ed25519_dalek::SigningKey::generate(&mut csprng);
     let verifying_key = signing_key.verifying_key();
 
-    let priv_pem = signing_key.to_pkcs8_pem(ed25519_dalek::pkcs8::spki::der::DocumentKind::Private)
+    let priv_pem = signing_key.to_pkcs8_pem()
         .context("failed to encode private key")?;
     let pub_pem = verifying_key.to_pkcs8_pem()
         .context("failed to encode public key")?;
 
     std::fs::write(&priv_path, priv_pem.as_str())?;
     std::fs::write(&pub_path, pub_pem.as_str())?;
-
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&priv_path, std::fs::Permissions::from_mode(0o600)).ok();
 
     Ok((priv_pem.to_string(), pub_pem.to_string()))
 }

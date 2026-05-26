@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -156,7 +155,7 @@ impl TunnelClient {
 
                         tokio::spawn(async move {
                             if let Err(e) = serve_conn(conn_id, rpc_port, w, c, write_rx).await {
-                                tracing::debug!("conn {} ended: {e}", conn_id);
+                                eprintln!("conn {} ended: {e}", conn_id);
                             }
                         });
                     }
@@ -180,7 +179,7 @@ impl TunnelClient {
                     PONG => {}
 
                     _ => {
-                        tracing::warn!("unknown frame type {} len={}", frame.msg_type, frame.payload.len());
+                        eprintln!("unknown frame type {} len={}", frame.msg_type, frame.payload.len());
                     }
                 }
             }
