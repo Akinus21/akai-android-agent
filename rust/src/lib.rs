@@ -126,7 +126,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeConnect(
 
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeGetPublicKey(
-    mut env: JNIEnv,
+    env: JNIEnv,
     _class: JClass,
 ) -> jstring {
     let keypair_dir = format!("{}/keys", get_data_dir());

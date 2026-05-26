@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use ed25519_dalek::pkcs8::{EncodePrivateKey, EncodePublicKey};
+use ed25519_dalek::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use std::path::PathBuf;
 
 fn keypair_path(keypair_dir: &str) -> (PathBuf, PathBuf) {
@@ -31,9 +31,9 @@ pub fn ensure_keypair_android(keypair_dir: &str) -> Result<(String, String)> {
     let signing_key = ed25519_dalek::SigningKey::generate(&mut csprng);
     let verifying_key = signing_key.verifying_key();
 
-    let priv_pem = signing_key.to_pkcs8_pem(ed25519_dalek::pkcs8::LineEnding::LF)
+    let priv_pem = signing_key.to_pkcs8_pem(pkcs8::LineEnding::LF)
         .context("failed to encode private key")?;
-    let pub_pem = verifying_key.to_pkcs8_pem(ed25519_dalek::pkcs8::LineEnding::LF)
+    let pub_pem = verifying_key.to_public_key_pem(pkcs8::LineEnding::LF)
         .context("failed to encode public key")?;
 
     std::fs::write(&priv_path, priv_pem.as_str())?;
