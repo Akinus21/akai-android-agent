@@ -1,7 +1,26 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use crate::alog;
 use reqwest::Client;
 use serde::Deserialize;
+
+use std::sync::OnceLock;
+
+static CLIENT: OnceLock<Client> = OnceLock::new();
+
+fn get_client() -> &'static Client {
+    CLIENT.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        match Client::builder()
+            .use_rustls_tls()
+            .build() {
+                Ok(c) => c,
+                Err(e) => {
+                    alog!(ERROR, "failed to build reqwest client: {e}");
+                    Client::new()
+                }
+            }
+    })
+}
 
 #[derive(Debug, Deserialize)]
 pub struct TunnelCertsResponse {
@@ -15,7 +34,6 @@ pub struct TunnelCertsResponse {
 pub struct QueueClient {
     base_url: String,
     username: String,
-    client: Client,
 }
 
 impl QueueClient {
@@ -23,7 +41,6 @@ impl QueueClient {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             username: username.to_string(),
-            client: Client::new(),
         }
     }
 
@@ -35,7 +52,8 @@ impl QueueClient {
 
         let signature = crate::auth::sign_message(&key_dir, "GET /tunnel/certs")?;
 
-        let resp = match self.client.get(&url)
+        let client = get_client();
+        let resp = match client.get(&url)
             .header("X-Worker-Key", public_key.trim())
             .header("X-Worker-Sig", signature)
             .header("X-Akai-Username", &self.username)
