@@ -103,7 +103,7 @@ jobs:
             -DGGML_CUDA=OFF \
             -DGGML_VULKAN=ON \
             -DBUILD_SHARED_LIBS=OFF \
-            -DLLAMA_CURL=OFF \
+            -DLLAMA_CURL=OFF
           cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt | tail -5
           ls -la bin/rpc-server 2>/dev/null || ls -la bin/llama-rpc-server 2>/dev/null || { echo "rpc-server not found"; find . -name 'rpc-server' -o -name 'llama-rpc-server' 2>/dev/null; exit 1; }
           mkdir -p $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a
