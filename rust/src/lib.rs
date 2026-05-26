@@ -15,7 +15,7 @@ fn get_data_dir() -> String {
 
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     data_dir: JString,
 ) {
@@ -33,7 +33,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir
 
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     queue_url: JString,
     username: JString,
@@ -86,7 +86,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
 
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeConnect(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     host: JString,
     port: jint,
@@ -126,7 +126,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeConnect(
 
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeGetPublicKey(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
     let keypair_dir = format!("{}/keys", get_data_dir());
@@ -140,7 +140,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeGetPublicK
 
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSignRequest(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     message: JString,
 ) -> jstring {
