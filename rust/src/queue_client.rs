@@ -23,10 +23,7 @@ impl QueueClient {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             username: username.to_string(),
-            client: Client::builder()
-                .danger_accept_invalid_certs(true)
-                .build()
-                .unwrap_or_default(),
+            client: Client::new(),
         }
     }
 
