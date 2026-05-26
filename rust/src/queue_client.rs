@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use crate::alog;
 use reqwest::Client;
 use serde::Deserialize;
 
