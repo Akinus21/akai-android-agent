@@ -1,17 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::io::Cursor;
-
-#[derive(Debug, Deserialize)]
-struct AuthResponse {
-    #[serde(default)]
-    pub detail: Option<String>,
-    #[serde(default)]
-    pub wg_ip: Option<String>,
-    #[serde(default)]
-    pub peer_id: Option<String>,
-}
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct TunnelCertsResponse {
@@ -40,11 +29,12 @@ impl QueueClient {
         }
     }
 
-    pub async fn fetch_tunnel_certs(&self) -> Result<TunnelCertsResponse> {
+    pub async fn fetch_tunnel_certs(&self, cert_dir: &str) -> Result<TunnelCertsResponse> {
         let url = format!("{}/tunnel/certs", self.base_url);
-        let (_, public_key) = crate::auth::ensure_keypair_android()?;
+        let key_dir = format!("{}/../keys", cert_dir);
+        let (_, public_key) = crate::auth::ensure_keypair_android(&key_dir)?;
 
-        let signature = crate::auth::sign_message("GET /tunnel/certs")?;
+        let signature = crate::auth::sign_message(&key_dir, "GET /tunnel/certs")?;
 
         let resp = self.client.get(&url)
             .header("X-Worker-Key", public_key.trim())
@@ -63,19 +53,18 @@ impl QueueClient {
         let certs: TunnelCertsResponse = resp.json().await
             .context("failed to parse tunnel certs response")?;
 
-        let cert_dir = crate::auth::data_dir().join("tunnel-certs");
-        std::fs::create_dir_all(&cert_dir)
+        std::fs::create_dir_all(cert_dir)
             .context("failed to create tunnel-certs directory")?;
 
-        std::fs::write(cert_dir.join("ca.crt"), &certs.ca_cert)?;
-        std::fs::write(cert_dir.join("worker.crt"), &certs.worker_cert)?;
-        std::fs::write(cert_dir.join("worker.key"), &certs.worker_key)?;
+        std::fs::write(format!("{}/ca.crt", cert_dir), &certs.ca_cert)?;
+        std::fs::write(format!("{}/worker.crt", cert_dir), &certs.worker_cert)?;
+        std::fs::write(format!("{}/worker.key", cert_dir), &certs.worker_key)?;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(cert_dir.join("worker.key"), std::fs::Permissions::from_mode(0o600)).ok();
-        }
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            format!("{}/worker.key", cert_dir),
+            std::fs::Permissions::from_mode(0o600),
+        ).ok();
 
         Ok(certs)
     }

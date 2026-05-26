@@ -55,27 +55,29 @@ pub struct TunnelClient {
     server_port: u16,
     worker_id: String,
     rpc_port: u16,
+    cert_dir: String,
     conns: Arc<Mutex<HashMap<u32, ConnState>>>,
 }
 
 impl TunnelClient {
-    pub fn from_config(server_host: &str, server_port: u16, worker_id: &str, rpc_port: u16) -> Self {
+    pub fn from_config(server_host: &str, server_port: u16, worker_id: &str, rpc_port: u16, cert_dir: &str) -> Self {
         Self {
             server_host: server_host.to_string(),
             server_port,
             worker_id: worker_id.to_string(),
             rpc_port,
+            cert_dir: cert_dir.to_string(),
             conns: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub async fn run(&self) -> Result<()> {
-        let cert_dir = crate::auth::data_dir().join("tunnel-certs");
-        let ca_pem = std::fs::read(cert_dir.join("ca.crt"))
+        let cert_dir = &self.cert_dir;
+        let ca_pem = std::fs::read(format!("{}/ca.crt", cert_dir))
             .context("ca.crt not found")?;
-        let crt_pem = std::fs::read(cert_dir.join("worker.crt"))
+        let crt_pem = std::fs::read(format!("{}/worker.crt", cert_dir))
             .context("worker.crt not found")?;
-        let key_pem = std::fs::read(cert_dir.join("worker.key"))
+        let key_pem = std::fs::read(format!("{}/worker.key", cert_dir))
             .context("worker.key not found")?;
 
         let connector = build_tls_connector(&ca_pem, &crt_pem, &key_pem)?;

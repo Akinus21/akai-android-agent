@@ -4,12 +4,36 @@ mod queue_client;
 
 use jni::objects::JClass;
 use jni::objects::JString;
-use jni::objects::JObject;
 use jni::JNIEnv;
-use jni::sys::{jboolean, jint, jstring};
+use jni::sys::{jint, jstring};
+use std::os::unix::fs::PermissionsExt;
+
+static mut DATA_DIR: String = String::new();
+
+fn get_data_dir() -> String {
+    unsafe { DATA_DIR.clone() }
+}
 
 #[no_mangle]
-pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_init(
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir(
+    mut env: JNIEnv,
+    _class: JClass,
+    data_dir: JString,
+) {
+    let dir: String = match env.get_string(&data_dir) {
+        Ok(s) => s.into(),
+        Err(_) => return,
+    };
+    unsafe {
+        DATA_DIR = dir;
+    }
+    if let Err(e) = std::fs::create_dir_all(&get_data_dir()) {
+        eprintln!("failed to create data dir {}: {e}", get_data_dir());
+    }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
     mut env: JNIEnv,
     _class: JClass,
     queue_url: JString,
@@ -24,12 +48,16 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_init(
         Err(_) => return -1,
     };
 
-    match auth::ensure_keypair_android() {
-        Ok(_) => {}
-        Err(e) => {
-            eprintln!("keypair init failed: {e}");
-            return -2;
-        }
+    let data_dir = get_data_dir();
+    if data_dir.is_empty() {
+        eprintln!("data dir not set — call setDataDir first");
+        return -6;
+    }
+
+    let keypair_dir = format!("{}/keys", data_dir);
+    if let Err(e) = auth::ensure_keypair_android(&keypair_dir) {
+        eprintln!("keypair init failed: {e}");
+        return -2;
     }
 
     let rt = match tokio::runtime::Runtime::new() {
@@ -38,21 +66,27 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_init(
     };
 
     rt.block_on(async {
-        match queue_client::QueueClient::new(&queue_url, &username)
-            .fetch_tunnel_certs()
-            .await
-        {
-            Ok(_) => 0,
+        let client = queue_client::QueueClient::new(&queue_url, &username);
+        let cert_dir = format!("{}/tunnel-certs", data_dir);
+        let certs = match client.fetch_tunnel_certs(&cert_dir).await {
+            Ok(c) => c,
             Err(e) => {
                 eprintln!("tunnel cert fetch failed: {e}");
-                -4
+                return -4;
             }
+        };
+
+        if let Err(e) = save_config_android(&data_dir, &queue_url, &username, &certs.tunnel_host, certs.tunnel_port) {
+            eprintln!("failed to save config: {e}");
+            return -5;
         }
+
+        0
     })
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_connect(
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeConnect(
     mut env: JNIEnv,
     _class: JClass,
     host: JString,
@@ -69,13 +103,16 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_connect(
         Err(_) => return -1,
     };
 
+    let data_dir = get_data_dir();
+    let cert_dir = format!("{}/tunnel-certs", data_dir);
+
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(_) => return -3,
     };
 
     let result = rt.block_on(async {
-        let client = tunnel::TunnelClient::from_config(&host, port as u16, &worker_id, rpc_port as u16);
+        let client = tunnel::TunnelClient::from_config(&host, port as u16, &worker_id, rpc_port as u16, &cert_dir);
         client.run().await
     });
 
@@ -89,11 +126,12 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_connect(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_getPublicKey(
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeGetPublicKey(
     mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    match auth::get_public_key_pem() {
+    let keypair_dir = format!("{}/keys", get_data_dir());
+    match auth::get_public_key_pem(&keypair_dir) {
         Ok(pem) => env.new_string(pem)
             .map(|s| s.into_raw())
             .unwrap_or(std::ptr::null_mut()),
@@ -102,7 +140,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_getPublicKey(
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_signRequest(
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSignRequest(
     mut env: JNIEnv,
     _class: JClass,
     message: JString,
@@ -111,11 +149,30 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_signRequest(
         Ok(s) => s.into(),
         Err(_) => return std::ptr::null_mut(),
     };
-
-    match auth::sign_message(&msg) {
+    let keypair_dir = format!("{}/keys", get_data_dir());
+    match auth::sign_message(&keypair_dir, &msg) {
         Ok(sig) => env.new_string(sig)
             .map(|s| s.into_raw())
             .unwrap_or(std::ptr::null_mut()),
         Err(_) => std::ptr::null_mut(),
     }
+}
+
+fn save_config_android(data_dir: &str, queue_url: &str, username: &str, tunnel_host: &str, tunnel_port: u16) -> anyhow::Result<()> {
+    std::fs::create_dir_all(data_dir)?;
+
+    let config = serde_json::json!({
+        "queue_url": queue_url,
+        "username": username,
+        "tunnel_host": tunnel_host,
+        "tunnel_port": tunnel_port,
+    });
+
+    let config_path = format!("{}/config.json", data_dir);
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+
+    let prefs_path = format!("{}/android-prefs.json", data_dir);
+    std::fs::write(&prefs_path, serde_json::to_string_pretty(&config)?)?;
+
+    Ok(())
 }

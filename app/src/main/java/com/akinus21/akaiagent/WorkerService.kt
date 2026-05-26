@@ -1,6 +1,7 @@
 package com.akinus21.akaiagent
 
 import android.app.*
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
@@ -13,8 +14,9 @@ class WorkerService : Service() {
     private val CHANNEL_ID = "akai_agent_channel"
     private val NOTIFICATION_ID = 1
 
-    private var tunnelJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var tunnelThread: Thread? = null
+    private var rpcProcess: Process? = null
+    private var tunnelResult: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -32,47 +34,41 @@ class WorkerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startWorker(intent: Intent) {
-        val host = intent.getStringExtra("tunnel_host") ?: return
+        val host = intent.getStringExtra("tunnel_host") ?: run { stopSelf(); return }
         val port = intent.getIntExtra("tunnel_port", 443)
-        val workerId = intent.getStringExtra("worker_id") ?: return
+        val workerId = intent.getStringExtra("worker_id") ?: run { stopSelf(); return }
         val rpcPort = intent.getIntExtra("rpc_port", 50052)
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("akai-agent")
-            .setContentText("Connected to $host")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setOngoing(true)
-            .addAction(0, "Stop", stopPendingIntent())
-            .build()
+        showNotification("Starting worker...")
 
-        startForeground(NOTIFICATION_ID, notification)
-
-        tunnelJob?.cancel()
-        tunnelJob = scope.launch {
-            withContext(Dispatchers.IO) {
-                val result = TunnelNative.connect(host, port, workerId, rpcPort)
-                Log.i(TAG, "tunnel disconnected with result: $result")
-            }
+        try {
+            rpcProcess = RpcServerManager.start(this, rpcPort)
+            Log.i(TAG, "rpc-server started on port $rpcPort")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start rpc-server: ${e.message}")
+            showNotification("rpc-server failed: ${e.message}")
+            return
         }
 
-        updateNotification("Connected to $host")
+        Thread {
+            Log.i(TAG, "Starting tunnel thread to $host:$port")
+            tunnelResult = TunnelNative.connect(host, port, workerId, rpcPort)
+            Log.i(TAG, "Tunnel exited with result: $tunnelResult")
+        }.also { tunnelThread = it }.start()
+
+        showNotification("Running: $host")
     }
 
     private fun stopWorker() {
-        tunnelJob?.cancel()
-        tunnelJob = null
+        tunnelThread?.interrupt()
+        tunnelThread = null
+        RpcServerManager.stop()
+        rpcProcess = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun stopPendingIntent(): PendingIntent {
-        val intent = Intent(this, WorkerService::class.java).apply {
-            action = "ACTION_STOP"
-        }
-        return PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-    }
-
-    private fun updateNotification(text: String) {
+    private fun showNotification(text: String) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("akai-agent")
             .setContentText(text)
@@ -80,8 +76,14 @@ class WorkerService : Service() {
             .setOngoing(true)
             .addAction(0, "Stop", stopPendingIntent())
             .build()
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.notify(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, notification)
+    }
+
+    private fun stopPendingIntent(): PendingIntent {
+        val intent = Intent(this, WorkerService::class.java).apply {
+            action = "ACTION_STOP"
+        }
+        return PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
     }
 
     private fun createNotificationChannel() {
@@ -99,7 +101,14 @@ class WorkerService : Service() {
     }
 
     override fun onDestroy() {
-        scope.cancel()
+        RpcServerManager.stop()
+        tunnelThread?.interrupt()
         super.onDestroy()
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        RpcServerManager.stop()
+        tunnelThread?.interrupt()
+        super.onTaskRemoved(rootIntent)
     }
 }
