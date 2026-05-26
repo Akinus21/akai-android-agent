@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-struct TunnelCertsResponse {
+pub struct TunnelCertsResponse {
     pub ca_cert: String,
     pub worker_cert: String,
     pub worker_key: String,

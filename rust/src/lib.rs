@@ -7,10 +7,12 @@ use jni::objects::JString;
 use jni::JNIEnv;
 use jni::sys::{jint, jstring};
 
-static mut DATA_DIR: String = String::new();
+use std::sync::OnceLock;
+
+static DATA_DIR: OnceLock<String> = OnceLock::new();
 
 fn get_data_dir() -> String {
-    unsafe { DATA_DIR.clone() }
+    DATA_DIR.get().cloned().unwrap_or_default()
 }
 
 #[no_mangle]
@@ -23,10 +25,8 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir
         Ok(s) => s.into(),
         Err(_) => return,
     };
-    unsafe {
-        DATA_DIR = dir;
-    }
-    if let Err(e) = std::fs::create_dir_all(&get_data_dir()) {
+    let _ = DATA_DIR.set(dir);
+    if let Err(e) = std::fs::create_dir_all(get_data_dir()) {
         eprintln!("failed to create data dir {}: {e}", get_data_dir());
     }
 }
