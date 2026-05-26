@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use crate::alog;
 use reqwest::Client;
 use serde::Deserialize;
@@ -10,13 +10,11 @@ static CLIENT: OnceLock<Client> = OnceLock::new();
 fn get_client() -> &'static Client {
     CLIENT.get_or_init(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        match Client::builder()
-            .use_rustls_tls()
-            .build() {
+        match Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {
                     alog!(ERROR, "failed to build reqwest client: {e}");
-                    Client::new()
+                    panic!("failed to build reqwest client: {e}");
                 }
             }
     })
