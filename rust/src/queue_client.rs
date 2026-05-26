@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use crate::alog;
 use reqwest::Client;
 use serde::Deserialize;
+use std::error::Error;
 
 use std::sync::OnceLock;
 
@@ -11,10 +12,19 @@ fn get_client() -> &'static Client {
     CLIENT.get_or_init(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
         match Client::builder().build() {
-                Ok(c) => c,
+                Ok(c) => {
+                    alog!(INFO, "reqwest client built successfully");
+                    c
+                }
                 Err(e) => {
                     alog!(ERROR, "failed to build reqwest client: {e}");
-                    panic!("failed to build reqwest client: {e}");
+                    alog!(ERROR, "error chain:");
+                    let mut source = e.source();
+                    while let Some(cause) = source {
+                        alog!(ERROR, "  caused by: {cause}");
+                        source = cause.source();
+                    }
+                    panic!("failed to build reqwest client");
                 }
             }
     })
@@ -61,6 +71,11 @@ impl QueueClient {
             Ok(r) => r,
             Err(e) => {
                 alog!(ERROR, "request to {} failed: {e}", url);
+                let mut source = e.source();
+                while let Some(cause) = source {
+                    alog!(ERROR, "  caused by: {cause}");
+                    source = cause.source();
+                }
                 bail!("request to {} failed: {e}", url);
             }
         };

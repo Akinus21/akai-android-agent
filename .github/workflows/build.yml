@@ -66,6 +66,9 @@ jobs:
         run: |
           set -o pipefail
           cd rust
+          cargo clean 2>/dev/null || true
+          echo "--- reqwest features ---"
+          cargo tree -p reqwest --features "" 2>/dev/null || true
           cargo ndk -t arm64-v8a build --release --verbose 2>&1 | tee /tmp/rust-build-arm64.txt
 
       - name: Build Rust library (armeabi-v7a)
