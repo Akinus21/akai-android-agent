@@ -56,16 +56,17 @@ impl QueueClient {
         let url = format!("{}/tunnel/certs", self.base_url);
         alog!(INFO, "fetching tunnel certs from {}", url);
         let key_dir = format!("{}/../keys", cert_dir);
-        let (_, public_key) = crate::auth::ensure_keypair_android(&key_dir)?;
+        let _ = crate::auth::ensure_keypair_android(&key_dir)?;
 
-        let signature = crate::auth::sign_message(&key_dir, "GET /tunnel/certs")?;
+        let timestamp = crate::auth::timestamp_millis();
+        let signature = crate::auth::sign_request(&key_dir, &timestamp, "GET", "/tunnel/certs", b"")?;
 
         let client = get_client();
         let resp = match client.get(&url)
-            .header("X-Worker-Key", public_key.trim())
-            .header("X-Worker-Sig", signature)
             .header("X-Akai-Username", &self.username)
             .header("X-Akai-Device-Id", &self.username)
+            .header("X-Akai-Timestamp", &timestamp)
+            .header("X-Akai-Signature", &signature)
             .send()
             .await {
             Ok(r) => r,

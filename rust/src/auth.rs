@@ -2,6 +2,14 @@ use anyhow::{bail, Context, Result};
 use ed25519_dalek::Signer;
 use std::path::PathBuf;
 
+pub fn timestamp_millis() -> String {
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("{}", millis)
+}
+
 fn keypair_path(keypair_dir: &str) -> (PathBuf, PathBuf) {
     let dir = PathBuf::from(keypair_dir);
     (dir.join("worker.key"), dir.join("worker.pub"))
@@ -57,7 +65,23 @@ pub fn sign_message(keypair_dir: &str, message: &str) -> Result<String> {
         .context("failed to decode private key")?;
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&priv_bytes);
     let signature = signing_key.sign(message.as_bytes());
-    Ok(signature.to_bytes().iter().map(|b| format!("{:02x}", b)).collect())
+    Ok(base64_encode(signature.to_bytes().as_ref()))
+}
+
+pub fn sign_request(keypair_dir: &str, timestamp: &str, method: &str, path: &str, body: &[u8]) -> Result<String> {
+    let message = format!("{}|{}|{}", timestamp, method, path);
+    let mut msg_bytes = message.as_bytes().to_vec();
+    msg_bytes.extend_from_slice(body);
+    sign_message(keypair_dir, &String::from_utf8_lossy(&msg_bytes))
+}
+
+pub fn get_public_key_base64(keypair_dir: &str) -> Result<String> {
+    let (_, pub_path) = keypair_path(keypair_dir);
+    let pub_pem = std::fs::read_to_string(&pub_path)
+        .context("public key not found")?;
+    let pub_bytes = decode_base64_pem(&pub_pem)
+        .context("failed to decode public key")?;
+    Ok(base64_encode(&pub_bytes))
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
