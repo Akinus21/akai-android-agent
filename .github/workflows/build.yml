@@ -75,9 +75,9 @@ jobs:
         run: |
           mkdir -p app/src/main/jniLibs/arm64-v8a
           mkdir -p app/src/main/jniLibs/armeabi-v7a
-          cp rust/target/aarch64-linux-android/release/libakai_tunnel.so app/src/main/jniLibs/arm64-v8a/
-          cp rust/target/armv7-linux-androideabi/release/libakai_tunnel.so app/src/main/jniLibs/armeabi-v7a/
-          ls -la app/src/main/jniLibs/*/libakai_tunnel.so
+          cp rust/target/aarch64-linux-android/release/libakai_tunnel_android.so app/src/main/jniLibs/arm64-v8a/
+          cp rust/target/armv7-linux-androideabi/release/libakai_tunnel_android.so app/src/main/jniLibs/armeabi-v7a/
+          ls -la app/src/main/jniLibs/*/libakai_tunnel_android.so
 
       - name: Setup Gradle
         run: chmod +x gradlew
@@ -152,7 +152,7 @@ jobs:
             tail -100 /tmp/gradle-build-log.txt 2>/dev/null || echo "(no gradle log)"
             echo ""
             echo "=== Built .so files ==="
-            find rust/target -name 'libakai_tunnel.so' -ls 2>/dev/null || echo "(none found)"
+            find rust/target -name 'libakai_tunnel_android.so' -ls 2>/dev/null || echo "(none found)"
             echo ""
             echo "=== cargo ndk version ==="
             cargo ndk --version 2>&1 || echo "(cargo ndk not found)"
@@ -195,24 +195,23 @@ jobs:
         run: |
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ -f /tmp/build-errors.txt ]; then
-            ERROR_TEXT=$(cat /tmp/build-errors.txt | head -400)
+            ERROR_TEXT=$(head -80 /tmp/build-errors.txt)
           else
             ERROR_TEXT="Build failed - no log file available. See $RUN_URL"
           fi
-          PAYLOAD=$(jq -cn \
+          printf '%s' "$ERROR_TEXT" | jq -Rn \
             --arg event   "build_failure" \
             --arg repo    "${{ github.repository }}" \
             --arg run_url "$RUN_URL" \
             --arg sha     "${{ github.sha }}" \
             --arg ref     "${{ github.ref_name }}" \
             --arg actor   "${{ github.actor }}" \
-            --arg error   "$ERROR_TEXT" \
-            '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor,error:$error}')
-          SIG=$(printf '%s' "$PAYLOAD" | \
+            '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor,error:[inputs]|join("\n")}' > /tmp/webhook-payload.json
+          SIG=$(cat /tmp/webhook-payload.json | \
             openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_SECRET" | awk '{print "sha256="$2}')
           curl -fsSL -X POST \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: build_failure" \
             -H "X-Hub-Signature-256: $SIG" \
-            -d "$PAYLOAD" \
+            -d @/tmp/webhook-payload.json \
             "https://webhook.akinus21.com/webhook/akai-net-build" || true

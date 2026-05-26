@@ -26,8 +26,8 @@ cargo ndk -t arm64-v8a -t armeabi-v7a build --release
 # Copy .so files
 mkdir -p ../app/src/main/jniLibs/arm64-v8a
 mkdir -p ../app/src/main/jniLibs/armeabi-v7a
-cp target/aarch64-linux-android/release/libakai_tunnel.so ../app/src/main/jniLibs/arm64-v8a/
-cp target/armv7-linux-androideabi/release/libakai_tunnel.so ../app/src/main/jniLibs/armeabi-v7a/
+cp target/aarch64-linux-android/release/libakai_tunnel_android.so ../app/src/main/jniLibs/arm64-v8a/
+cp target/armv7-linux-androideabi/release/libakai_tunnel_android.so ../app/src/main/jniLibs/armeabi-v7a/
 
 # Build APK
 cd ..

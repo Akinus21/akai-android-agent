@@ -43,7 +43,7 @@ android {
 
     packaging {
         jniLibs {
-            pickFirsts += listOf("**/libakai_tunnel.so")
+            pickFirsts += listOf("**/libakai_tunnel_android.so")
         }
     }
 }
