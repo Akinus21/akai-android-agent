@@ -43,15 +43,33 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
 
+      - name: Verify NDK and toolchain
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "${ANDROID_HOME}/ndk/" 2>/dev/null || echo "No NDK dir"
+          NDK_DIR="${ANDROID_NDK_HOME:-unknown}"
+          ls "$NDK_DIR/toolchains/llvm/prebuilt/" 2>/dev/null || echo "No prebuilt dir"
+          echo "--- clang binaries ---"
+          ls "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/"*clang* 2>/dev/null | head -10 || echo "No clang found"
+          echo "--- cargo ndk version ---"
+          cargo ndk --version
+          echo "--- rustc version ---"
+          rustc --version
+          echo "--- cargo version ---"
+          cargo --version
+
       - name: Build Rust library (arm64-v8a)
         run: |
+          set -o pipefail
           cd rust
-          cargo ndk -t arm64-v8a build --release 2>&1 | tee /tmp/rust-build-arm64.txt
+          cargo ndk -t arm64-v8a build --release --verbose 2>&1 | tee /tmp/rust-build-arm64.txt
 
       - name: Build Rust library (armeabi-v7a)
         run: |
+          set -o pipefail
           cd rust
-          cargo ndk -t armeabi-v7a build --release 2>&1 | tee /tmp/rust-build-armv7.txt
+          cargo ndk -t armeabi-v7a build --release --verbose 2>&1 | tee /tmp/rust-build-armv7.txt
 
       - name: Copy native libraries
         run: |
@@ -65,7 +83,9 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug 2>&1 | tee /tmp/gradle-build-log.txt
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug 2>&1 | tee /tmp/gradle-build-log.txt
 
       - name: Compute version tag
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -111,29 +131,32 @@ jobs:
       - name: Collect build logs on failure
         if: failure()
         run: |
-          echo "=== ENV ===" >> /tmp/build-errors.txt
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> /tmp/build-errors.txt
-          echo "ANDROID_HOME=$ANDROID_HOME" >> /tmp/build-errors.txt
-          echo "" >> /tmp/build-errors.txt
-          echo "=== NDK toolchain ===" >> /tmp/build-errors.txt
-          ls "${ANDROID_HOME}/ndk/" >> /tmp/build-errors.txt 2>/dev/null || echo "(no ndk dir)" >> /tmp/build-errors.txt
-          NDK_DIR="${ANDROID_NDK_HOME:-unknown}"
-          ls "$NDK_DIR/toolchains/llvm/prebuilt/" >> /tmp/build-errors.txt 2>/dev/null || echo "(no prebuilt dir)" >> /tmp/build-errors.txt
-          echo "" >> /tmp/build-errors.txt
-          echo "=== Rust build arm64 ===" >> /tmp/build-errors.txt
-          tail -150 /tmp/rust-build-arm64.txt >> /tmp/build-errors.txt 2>/dev/null || echo "(no arm64 log)" >> /tmp/build-errors.txt
-          echo "" >> /tmp/build-errors.txt
-          echo "=== Rust build armv7 ===" >> /tmp/build-errors.txt
-          tail -150 /tmp/rust-build-armv7.txt >> /tmp/build-errors.txt 2>/dev/null || echo "(no armv7 log)" >> /tmp/build-errors.txt
-          echo "" >> /tmp/build-errors.txt
-          echo "=== Gradle build ===" >> /tmp/build-errors.txt
-          tail -100 /tmp/gradle-build-log.txt >> /tmp/build-errors.txt 2>/dev/null || echo "(no gradle log)" >> /tmp/build-errors.txt
-          echo "" >> /tmp/build-errors.txt
-          echo "=== Built .so files ===" >> /tmp/build-errors.txt
-          find rust/target -name 'libakai_tunnel.so' -ls >> /tmp/build-errors.txt 2>/dev/null || echo "(none found)" >> /tmp/build-errors.txt
-          echo "" >> /tmp/build-errors.txt
-          echo "=== cargo ndk version ===" >> /tmp/build-errors.txt
-          cargo ndk --version >> /tmp/build-errors.txt 2>&1 || echo "(cargo ndk not found)" >> /tmp/build-errors.txt
+          {
+            echo "=== ENV ==="
+            echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo ""
+            echo "=== NDK toolchain ==="
+            ls "${ANDROID_HOME}/ndk/" 2>/dev/null || echo "(no ndk dir)"
+            NDK_DIR="${ANDROID_NDK_HOME:-unknown}"
+            ls "$NDK_DIR/toolchains/llvm/prebuilt/" 2>/dev/null || echo "(no prebuilt dir)"
+            ls "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/"*clang* 2>/dev/null | head -10 || echo "(no clang)"
+            echo ""
+            echo "=== Rust build arm64 ==="
+            tail -150 /tmp/rust-build-arm64.txt 2>/dev/null || echo "(no arm64 log)"
+            echo ""
+            echo "=== Rust build armv7 ==="
+            tail -150 /tmp/rust-build-armv7.txt 2>/dev/null || echo "(no armv7 log)"
+            echo ""
+            echo "=== Gradle build ==="
+            tail -100 /tmp/gradle-build-log.txt 2>/dev/null || echo "(no gradle log)"
+            echo ""
+            echo "=== Built .so files ==="
+            find rust/target -name 'libakai_tunnel.so' -ls 2>/dev/null || echo "(none found)"
+            echo ""
+            echo "=== cargo ndk version ==="
+            cargo ndk --version 2>&1 || echo "(cargo ndk not found)"
+          } > /tmp/build-errors.txt
           cat /tmp/build-errors.txt
 
       - name: Notify webhook — success
