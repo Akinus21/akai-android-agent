@@ -100,10 +100,11 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
     rt.block_on(async {
         let client = queue_client::QueueClient::new(&queue_url, &username);
         let cert_dir = format!("{}/tunnel-certs", data_dir);
-        let certs = match client.fetch_tunnel_certs(&cert_dir).await {
+        let worker_name = format!("android-{}", username);
+        let certs = match client.register_and_fetch_certs(&cert_dir, &worker_name).await {
             Ok(c) => c,
             Err(e) => {
-                alog!(ERROR, "tunnel cert fetch failed: {e}");
+                alog!(ERROR, "init failed: {e}");
                 return -4;
             }
         };
