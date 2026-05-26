@@ -32,19 +32,25 @@ impl QueueClient {
 
     pub async fn fetch_tunnel_certs(&self, cert_dir: &str) -> Result<TunnelCertsResponse> {
         let url = format!("{}/tunnel/certs", self.base_url);
+        alog!(INFO, "fetching tunnel certs from {}", url);
         let key_dir = format!("{}/../keys", cert_dir);
         let (_, public_key) = crate::auth::ensure_keypair_android(&key_dir)?;
 
         let signature = crate::auth::sign_message(&key_dir, "GET /tunnel/certs")?;
 
-        let resp = self.client.get(&url)
+        let resp = match self.client.get(&url)
             .header("X-Worker-Key", public_key.trim())
             .header("X-Worker-Sig", signature)
             .header("X-Akai-Username", &self.username)
             .header("X-Akai-Device-Id", &self.username)
             .send()
-            .await
-            .context("failed to fetch tunnel certs")?;
+            .await {
+            Ok(r) => r,
+            Err(e) => {
+                alog!(ERROR, "request to {} failed: {e}", url);
+                bail!("request to {} failed: {e}", url);
+            }
+        };
 
         if !resp.status().is_success() {
             let status = resp.status();
