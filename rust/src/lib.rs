@@ -15,6 +15,28 @@ fn get_data_dir() -> String {
     DATA_DIR.get().cloned().unwrap_or_default()
 }
 
+#[link(name = "log")]
+extern "C" {
+    fn __android_log_write(prio: i32, tag: *const u8, msg: *const u8) -> i32;
+}
+
+const LOG_INFO: i32 = 4;
+const LOG_ERROR: i32 = 6;
+
+macro_rules! alog {
+    ($level:expr, $($arg:tt)*) => {
+        {
+            let msg = format!($($arg)*);
+            let tag = b"akai-agent\0";
+            let c_msg = match std::ffi::CString::new(msg) {
+                Ok(s) => s,
+                Err(_) => std::ffi::CString::new("(log msg contained null byte)").unwrap_or_default(),
+            };
+            unsafe { __android_log_write($level, tag.as_ptr(), c_msg.as_ptr()); }
+        }
+    };
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir(
     mut env: JNIEnv,
@@ -27,7 +49,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir
     };
     let _ = DATA_DIR.set(dir);
     if let Err(e) = std::fs::create_dir_all(get_data_dir()) {
-        eprintln!("failed to create data dir {}: {e}", get_data_dir());
+        alog!(LOG_ERROR, "failed to create data dir {}: {e}", get_data_dir());
     }
 }
 
@@ -49,13 +71,13 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
 
     let data_dir = get_data_dir();
     if data_dir.is_empty() {
-        eprintln!("data dir not set — call setDataDir first");
+        alog!(LOG_ERROR, "data dir not set — call setDataDir first");
         return -6;
     }
 
     let keypair_dir = format!("{}/keys", data_dir);
     if let Err(e) = auth::ensure_keypair_android(&keypair_dir) {
-        eprintln!("keypair init failed: {e}");
+        alog!(LOG_ERROR, "keypair init failed: {e}");
         return -2;
     }
 
@@ -70,13 +92,13 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
         let certs = match client.fetch_tunnel_certs(&cert_dir).await {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("tunnel cert fetch failed: {e}");
+                alog!(LOG_ERROR, "tunnel cert fetch failed: {e}");
                 return -4;
             }
         };
 
         if let Err(e) = save_config_android(&data_dir, &queue_url, &username, &certs.tunnel_host, certs.tunnel_port) {
-            eprintln!("failed to save config: {e}");
+            alog!(LOG_ERROR, "failed to save config: {e}");
             return -5;
         }
 
@@ -118,7 +140,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeConnect(
     match result {
         Ok(_) => 0,
         Err(e) => {
-            eprintln!("tunnel error: {e}");
+            alog!(LOG_ERROR, "tunnel error: {e}");
             -4
         }
     }

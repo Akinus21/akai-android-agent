@@ -40,6 +40,7 @@ impl QueueClient {
             .header("X-Worker-Key", public_key.trim())
             .header("X-Worker-Sig", signature)
             .header("X-Akai-Username", &self.username)
+            .header("X-Akai-Device-Id", &self.username)
             .send()
             .await
             .context("failed to fetch tunnel certs")?;
@@ -47,6 +48,7 @@ impl QueueClient {
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
+            crate::alog!(crate::LOG_ERROR, "tunnel certs request failed: {} - {}", status, body);
             bail!("tunnel certs request failed: {} - {}", status, body);
         }
 
