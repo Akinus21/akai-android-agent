@@ -14,7 +14,7 @@ object TunnelNative {
     fun load(context: Context) {
         if (loaded) return
         try {
-            System.loadLibrary("akai_tunnel")
+            System.loadLibrary("akai_tunnel_android")
             nativeSetDataDir(context.filesDir.absolutePath + "/akai-agent")
             loaded = true
         } catch (e: UnsatisfiedLinkError) {
