@@ -89,7 +89,10 @@ jobs:
         run: |
           set -o pipefail
           LLAMACPP_VERSION=a8681a0
-          sudo apt-get install -yq glslc 2>/dev/null || true
+          sudo apt-get update -qq && sudo apt-get install -yq glslc spirv-tools libspirv-dev spirv-headers glslang-tools libglvnd-dev 2>/dev/null || true
+          git clone https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers --depth 1 --branch sdk-1.3.275.0
+          cmake -S /tmp/spirv-headers -B /tmp/spirv-headers-build -DCMAKE_INSTALL_PREFIX=/usr/local
+          cmake --build /tmp/spirv-headers-build --target install
           git clone https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp
           cd /tmp/llama.cpp
           git checkout $LLAMACPP_VERSION
@@ -204,7 +207,7 @@ jobs:
         run: |
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           TAG="${{ steps.tag.outputs.new_tag }}"
-          PAYLOAD=$(jq -cn \
+          jq -cn \
             --arg event  "build_success" \
             --arg repo   "${{ github.repository }}" \
             --arg run_url "$RUN_URL" \
@@ -213,15 +216,15 @@ jobs:
             --arg actor  "${{ github.actor }}" \
             --arg tag    "$TAG" \
             --arg image  "apk" \
-            '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor,tag:$tag,image:$image}')
-          SIG=$(printf '%s' "$PAYLOAD" | \
+            '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor,tag:$tag,image:$image}' > /tmp/webhook-payload.json
+          SIG=$(cat /tmp/webhook-payload.json | \
             openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_SECRET" | awk '{print "sha256="$2}')
           curl -fsSL -X POST \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: build_success" \
             -H "X-Hub-Signature-256: $SIG" \
-            -d "$PAYLOAD" \
-            "https://webhook.akinus21.com/webhook/akai-net-build" || true
+            -d @/tmp/webhook-payload.json \
+            "https://webhook.akinus21.com/webhook/akai-net-build"
 
       - name: Notify webhook — failure
         if: failure() && github.ref == 'refs/heads/main'
