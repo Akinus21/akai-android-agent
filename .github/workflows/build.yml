@@ -97,18 +97,7 @@ jobs:
           cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/vulkan-install
           cmake --build /tmp/vulkan-headers-build --target install
           git clone https://github.com/KhronosGroup/Vulkan-Hpp.git /tmp/vulkan-hpp --depth 1 --branch v1.3.275
-          mkdir -p /tmp/vulkan-install/include/vulkan
-          cp /tmp/vulkan-hpp/vulkan/vulkan.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_enums.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_format.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_funcs.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_handle.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_hash.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_hpp_macros.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_raii.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_shared.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_structs.hpp /tmp/vulkan-install/include/vulkan/
-          cp /tmp/vulkan-hpp/vulkan/vulkan_to_string.hpp /tmp/vulkan-install/include/vulkan/
+          cp -r /tmp/vulkan-hpp/vulkan/ /tmp/vulkan-install/include/vulkan/
           git clone https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp
           cd /tmp/llama.cpp
           git checkout $LLAMACPP_VERSION
