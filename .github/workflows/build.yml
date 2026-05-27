@@ -85,10 +85,22 @@ jobs:
           cp rust/target/armv7-linux-androideabi/release/libakai_tunnel_android.so app/src/main/jniLibs/armeabi-v7a/
           ls -la app/src/main/jniLibs/*/libakai_tunnel_android.so
 
+      - name: Setup Vulkan SDK
+        run: |
+          set -o pipefail
+          wget -q https://sdk.lunarg.com/sdk/download/1.3.275.0/linux/vulkan-sdk-1.3.275.0-linux.tar.xz -O /tmp/vulkan-sdk.tar.xz
+          mkdir -p /tmp/vulkan-sdk
+          tar -xf /tmp/vulkan-sdk.tar.xz -C /tmp/vulkan-sdk --strip-components=1
+          ls /tmp/vulkan-sdk/
+          ls /tmp/vulkan-sdk/x86_64/bin/ 2>/dev/null || echo "no x86_64"
+
       - name: Build rpc-server for Android arm64
         run: |
           set -o pipefail
           LLAMACPP_VERSION=a8681a0
+          export Vulkan_INCLUDE_DIR=/tmp/vulkan-sdk/include
+          export Vulkan_GLSLC_EXECUTABLE=/tmp/vulkan-sdk/x86_64/bin/glslc
+          export Vulkan_GLSLANG_VALIDATOR_EXECUTABLE=/tmp/vulkan-sdk/x86_64/bin/glslangValidator
           git clone https://github.com/ggml-org/llama.cpp.git /tmp/llama.cpp
           cd /tmp/llama.cpp
           git checkout $LLAMACPP_VERSION
@@ -102,14 +114,17 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
             -DGGML_RPC=ON \
             -DGGML_CUDA=OFF \
-            -DGGML_VULKAN=OFF \
+            -DGGML_VULKAN=ON \
             -DGGML_AMX=OFF \
             -DGGML_AVX=OFF \
             -DGGML_AVX2=OFF \
             -DGGML_AVX512=OFF \
             -DBUILD_SHARED_LIBS=OFF \
-            -DLLAMA_CURL=OFF 2>&1 | tee /tmp/cmake-configure.txt
-
+            -DLLAMA_CURL=OFF \
+            -DVulkan_GLSLC_EXECUTABLE=/tmp/vulkan-sdk/x86_64/bin/glslc \
+            -DVulkan_GLSLANG_VALIDATOR_EXECUTABLE=/tmp/vulkan-sdk/x86_64/bin/glslangValidator \
+            -DVulkan_INCLUDE_DIR=/tmp/vulkan-sdk/include \
+            -DCMAKE_CXX_FLAGS="-I/tmp/vulkan-sdk/include" 2>&1 | tee /tmp/cmake-configure.txt
           cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt
           ls -la bin/rpc-server 2>/dev/null || ls -la bin/llama-rpc-server 2>/dev/null || { echo "rpc-server not found"; find . -name 'rpc-server' -o -name 'llama-rpc-server' 2>/dev/null; exit 1; }
           mkdir -p $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a

@@ -4,21 +4,27 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 
 object RpcServerManager {
     private const val TAG = "akai-agent"
     private const val RPC_BINARY = "rpc-server"
+    private const val CACHE_DIR = "rpc-bin"
 
     private var process: Process? = null
 
     fun getBinaryPath(context: Context): File {
-        return File(context.filesDir, RPC_BINARY)
+        return File(context.cacheDir, CACHE_DIR)
     }
 
     fun ensureBinary(context: Context): File {
-        val target = getBinaryPath(context)
-        if (target.exists() && target.canExecute()) {
-            return target
+        val targetDir = File(context.cacheDir, CACHE_DIR)
+        targetDir.mkdirs()
+        Runtime.getRuntime().exec(arrayOf("chmod", "755", targetDir.absolutePath)).waitFor()
+
+        val binary = File(targetDir, RPC_BINARY)
+        if (binary.exists() && binary.canExecute()) {
+            return binary
         }
 
         val abi = if (android.os.Build.SUPPORTED_ABIS.isNotEmpty()) {
@@ -30,17 +36,13 @@ object RpcServerManager {
         val assetPath = "rpc-server/${abi}/${RPC_BINARY}"
         try {
             context.assets.open(assetPath).use { input ->
-                FileOutputStream(target).use { output ->
-                    input.copyTo(output)
-                }
+                copyBinary(input, binary)
             }
         } catch (e: Exception) {
             Log.w(TAG, "No bundled rpc-server for $abi, trying generic: $e")
             try {
                 context.assets.open("rpc-server/${RPC_BINARY}").use { input ->
-                    FileOutputStream(target).use { output ->
-                        input.copyTo(output)
-                    }
+                    copyBinary(input, binary)
                 }
             } catch (e2: Exception) {
                 Log.e(TAG, "No rpc-server asset found: $e2")
@@ -48,10 +50,15 @@ object RpcServerManager {
             }
         }
 
-        target.setExecutable(true)
-        target.setReadable(true)
-        target.setWritable(true)
-        return target
+        Runtime.getRuntime().exec(arrayOf("chmod", "755", binary.absolutePath)).waitFor()
+        Log.i(TAG, "rpc-server: path=${binary.absolutePath} size=${binary.length()} canExec=${binary.canExecute()}")
+        return binary
+    }
+
+    private fun copyBinary(input: InputStream, target: File) {
+        FileOutputStream(target).use { output ->
+            input.copyTo(output)
+        }
     }
 
     fun start(context: Context, port: Int): Process {
@@ -63,7 +70,7 @@ object RpcServerManager {
         Log.i(TAG, "Starting rpc-server: ${cmd.joinToString(" ")}")
         val pb = ProcessBuilder(cmd)
             .redirectErrorStream(true)
-            .directory(context.filesDir)
+            .directory(context.cacheDir)
 
         val env = pb.environment()
         val ldPath = mutableListOf(context.applicationInfo.nativeLibraryDir)
@@ -71,7 +78,7 @@ object RpcServerManager {
         for (dir in systemLibs) {
             if (java.io.File(dir).exists()) ldPath.add(dir)
         }
-        ldPath.add(env.get("LD_LIBRARY_PATH") ?: "")
+        ldPath.add(env["LD_LIBRARY_PATH"] ?: "")
         env["LD_LIBRARY_PATH"] = ldPath.joinToString(":")
 
         val proc = pb.start()
