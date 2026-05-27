@@ -24,6 +24,7 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    concurrency: self-healing-agent
     permissions:
       contents: write
       actions: read
@@ -170,13 +171,17 @@ jobs:
             git push "https://x-access-token:${{ secrets.GH_TOKEN || github.token }}@github.com/${{ github.repository }}.git" HEAD:main
             echo "Pushed fix iteration $RETRY"
 
-            # Wait for CI to start and complete
-            echo "Waiting 60s for CI to trigger..."
-            sleep 60
+            # Record current run count so we can detect the NEW run
+            INITIAL_RUNS=$(gh run list --repo "${{ github.repository }}" --branch main --limit 5 --json databaseId --jq '.[].databaseId' 2>/dev/null | wc -l || echo "0")
+            echo "Current run count on main: $INITIAL_RUNS"
 
-            # Poll CI status
+            # Wait for CI to start and complete
+            echo "Waiting 30s for CI to trigger..."
+            sleep 30
+
+            # Poll CI status — wait for a NEW run to appear
             for i in $(seq 1 120); do
-              STATUS=$(gh run list --repo "${{ github.repository }}" --branch main --limit 1 --json status,conclusion,databaseId --jq '.[0]' 2>/dev/null || echo "{}")
+              STATUS=$(gh run list --repo "${{ github.repository }}" --branch main --limit 5 --json status,conclusion,databaseId --jq '.[0]' 2>/dev/null || echo "{}")
               RUN_STATUS=$(echo "$STATUS" | jq -r '.status // "unknown"')
               RUN_CONCLUSION=$(echo "$STATUS" | jq -r '.conclusion // "running"')
               RUN_DB_ID=$(echo "$STATUS" | jq -r '.databaseId // "0"')
@@ -205,7 +210,7 @@ jobs:
                   break
                 fi
               fi
-              echo "  Waiting... ($i/120)"
+              echo "  Waiting for CI... ($i/120)"
               sleep 30
             done
           done
