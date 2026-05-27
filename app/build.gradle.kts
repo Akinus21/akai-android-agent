@@ -46,9 +46,20 @@ android {
         jvmTarget = "17"
     }
 
+    sourceSets {
+        getByName("main") {
+            assets {
+                srcDirs(listOf("src/main/assets"))
+            }
+        }
+    }
+
     packaging {
         jniLibs {
             pickFirsts += listOf("**/libakai_tunnel_android.so")
+        }
+        resources {
+            excludes += listOf("**/rpc-server/**")
         }
     }
 }

@@ -131,6 +131,7 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a
           cp bin/rpc-server $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server 2>/dev/null || \
           cp bin/llama-rpc-server $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server 2>/dev/null
+          chmod 755 $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server
           ls -la $GITHUB_WORKSPACE/app/src/main/assets/rpc-server/arm64-v8a/rpc-server
 
       - name: Setup Gradle

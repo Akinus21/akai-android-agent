@@ -20,7 +20,6 @@ object RpcServerManager {
     fun ensureBinary(context: Context): File {
         val targetDir = File(context.cacheDir, CACHE_DIR)
         targetDir.mkdirs()
-        Runtime.getRuntime().exec(arrayOf("chmod", "755", targetDir.absolutePath)).waitFor()
 
         val binary = File(targetDir, RPC_BINARY)
         if (binary.exists() && binary.canExecute()) {
@@ -50,7 +49,7 @@ object RpcServerManager {
             }
         }
 
-        Runtime.getRuntime().exec(arrayOf("chmod", "755", binary.absolutePath)).waitFor()
+        binary.setExecutable(true)
         Log.i(TAG, "rpc-server: path=${binary.absolutePath} size=${binary.length()} canExec=${binary.canExecute()}")
         return binary
     }
