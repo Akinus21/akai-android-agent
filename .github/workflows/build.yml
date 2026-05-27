@@ -90,10 +90,10 @@ jobs:
           set -o pipefail
           sudo apt-get update -qq
           sudo apt-get install -yq glslc spirv-tools libglvnd-dev glslang-tools 2>/dev/null || true
-          git clone --depth 1 --branch vulkan-sdk-1.3.275.0 https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
+          git clone --depth 1 --branch master https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
           cmake -S /tmp/spirv-headers -B /tmp/spirv-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/spirv-install
           cmake --build /tmp/spirv-headers-build --target install
-          git clone --depth 1 --branch sdk-1.3.275.0 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
+          git clone --depth 1 --branch master https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
           cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/spirv-install
           cmake --build /tmp/vulkan-headers-build --target install
           which glslc
@@ -116,17 +116,14 @@ jobs:
             -DGGML_RPC=ON \
             -DGGML_CUDA=OFF \
             -DGGML_VULKAN=ON \
-            -DGGML_AMX=OFF \
+            -DGGML_OPENCL=OFF \
             -DGGML_AVX=OFF \
             -DGGML_AVX2=OFF \
             -DGGML_AVX512=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DLLAMA_CURL=OFF \
             -DSPIRV-Headers_DIR=/tmp/spirv-install/share/cmake/SPIRV-Headers \
-            -DVulkan_DIR=/tmp/spirv-install/share/cmake/Vulkan \
-            -DVulkan_INCLUDE_DIRS=/tmp/spirv-install/include \
-            -DVulkan_GLSLC_EXECUTABLE=/usr/bin/glslc \
-            -DVulkan_GLSLANG_VALIDATOR_EXECUTABLE=/usr/bin/glslangValidator \
+            -DCMAKE_INCLUDE_PATH=/tmp/spirv-install/include \
             2>&1 | tee /tmp/cmake-configure.txt
           cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt
           ls -la bin/rpc-server 2>/dev/null || ls -la bin/llama-rpc-server 2>/dev/null || { echo "rpc-server not found"; find . -name 'rpc-server' -o -name 'llama-rpc-server' 2>/dev/null; exit 1; }
