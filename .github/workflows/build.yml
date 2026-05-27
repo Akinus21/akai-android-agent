@@ -90,10 +90,10 @@ jobs:
           set -o pipefail
           sudo apt-get update -qq
           sudo apt-get install -yq glslc spirv-tools libglvnd-dev glslang-tools 2>/dev/null || true
-          git clone --depth 1 --branch master https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
+          git clone --depth 1 --branch main https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
           cmake -S /tmp/spirv-headers -B /tmp/spirv-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/spirv-install
           cmake --build /tmp/spirv-headers-build --target install
-          git clone --depth 1 --branch master https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
+          git clone --depth 1 --branch main https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
           cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/spirv-install
           cmake --build /tmp/vulkan-headers-build --target install
           which glslc
