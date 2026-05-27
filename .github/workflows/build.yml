@@ -123,7 +123,8 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DLLAMA_CURL=OFF \
             -DSPIRV-Headers_DIR=/tmp/spirv-install/share/cmake/SPIRV-Headers \
-            -DCMAKE_INCLUDE_PATH=/tmp/spirv-install/include \
+            -DVulkan_DIR=/tmp/spirv-install/share/cmake/Vulkan \
+            -DCMAKE_CXX_FLAGS="-I/tmp/spirv-install/include" \
             2>&1 | tee /tmp/cmake-configure.txt
           cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt
           ls -la bin/rpc-server 2>/dev/null || ls -la bin/llama-rpc-server 2>/dev/null || { echo "rpc-server not found"; find . -name 'rpc-server' -o -name 'llama-rpc-server' 2>/dev/null; exit 1; }
