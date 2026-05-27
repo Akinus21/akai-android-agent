@@ -85,19 +85,6 @@ jobs:
           cp rust/target/armv7-linux-androideabi/release/libakai_tunnel_android.so app/src/main/jniLibs/armeabi-v7a/
           ls -la app/src/main/jniLibs/*/libakai_tunnel_android.so
 
-      - name: Setup Vulkan SDK
-        run: |
-          set -o pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -yq glslc spirv-tools libglvnd-dev glslang-tools 2>/dev/null || true
-          git clone --depth 1 --branch main https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
-          cmake -S /tmp/spirv-headers -B /tmp/spirv-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/spirv-install
-          cmake --build /tmp/spirv-headers-build --target install
-          git clone --depth 1 --branch main https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
-          cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers-build -DCMAKE_INSTALL_PREFIX=/tmp/spirv-install
-          cmake --build /tmp/vulkan-headers-build --target install
-          which glslc
-
       - name: Build rpc-server for Android arm64
         run: |
           set -o pipefail
@@ -115,16 +102,14 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
             -DGGML_RPC=ON \
             -DGGML_CUDA=OFF \
-            -DGGML_VULKAN=ON \
+            -DGGML_VULKAN=OFF \
             -DGGML_OPENCL=OFF \
-            -DGGML_AVX=OFF \
+            -DGGML_KQUANT=OFF \
+            -DGGML_CPU=ON \
             -DGGML_AVX2=OFF \
             -DGGML_AVX512=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DLLAMA_CURL=OFF \
-            -DSPIRV-Headers_DIR=/tmp/spirv-install/share/cmake/SPIRV-Headers \
-            -DVulkan_DIR=/tmp/spirv-install/share/cmake/Vulkan \
-            -DCMAKE_CXX_FLAGS="-I/tmp/spirv-install/include" \
             2>&1 | tee /tmp/cmake-configure.txt
           cmake --build . --config Release -j$(nproc) --target rpc-server 2>&1 | tee /tmp/rpc-build.txt
           ls -la bin/rpc-server 2>/dev/null || ls -la bin/llama-rpc-server 2>/dev/null || { echo "rpc-server not found"; find . -name 'rpc-server' -o -name 'llama-rpc-server' 2>/dev/null; exit 1; }
