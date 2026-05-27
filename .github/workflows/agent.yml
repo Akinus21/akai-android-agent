@@ -17,15 +17,13 @@ on:
       - completed
     branches: [main]
 
-env:
-  MAX_RETRIES: 3
-
 jobs:
   autonomous-agent-fix:
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: write
       actions: read
@@ -109,7 +107,6 @@ jobs:
           git config --global user.name "AkAgent Bot"
           git config --global user.email "aktags-bot@akinus21.com"
 
-          MAX_RETRIES=${{ env.MAX_RETRIES }}
           RETRY=0
 
           # Build initial prompt
@@ -142,12 +139,12 @@ jobs:
           Additional instructions: ${{ inputs.prompt }}"
           fi
 
-          echo "=== Self-Healing Agent: max $MAX_RETRIES iteration(s) ==="
+          echo "=== Self-Healing Agent: iterating until build passes ==="
 
-          while [ $RETRY -lt $MAX_RETRIES ]; do
+          while true; do
             RETRY=$((RETRY + 1))
             echo ""
-            echo "=== Iteration $RETRY of $MAX_RETRIES ==="
+            echo "=== Iteration $RETRY ==="
 
             # Try a local Rust+Android build first (skip if only workflow fixes needed)
             echo "Attempting local Rust + Android build..."
@@ -178,7 +175,7 @@ jobs:
             sleep 60
 
             # Poll CI status
-            for i in $(seq 1 60); do
+            for i in $(seq 1 120); do
               STATUS=$(gh run list --repo "${{ github.repository }}" --branch main --limit 1 --json status,conclusion,databaseId --jq '.[0]' 2>/dev/null || echo "{}")
               RUN_STATUS=$(echo "$STATUS" | jq -r '.status // "unknown"')
               RUN_CONCLUSION=$(echo "$STATUS" | jq -r '.conclusion // "running"')
@@ -208,14 +205,10 @@ jobs:
                   break
                 fi
               fi
-              echo "  Waiting... ($i/60)"
+              echo "  Waiting... ($i/120)"
               sleep 30
             done
           done
-
-          echo "=== Agent exhausted $MAX_RETRIES retries without success ==="
-          echo "pass=false" >> $GITHUB_OUTPUT
-          exit 1
 
       - name: Result
         if: always()
@@ -223,6 +216,5 @@ jobs:
           if [ "${{ steps.agent.outputs.pass }}" = "true" ]; then
             echo "Self-healing succeeded: CI build passes."
           else
-            echo "Self-healing failed: could not fix the build within ${{ env.MAX_RETRIES }} iterations."
-            echo "Manual intervention required."
+            echo "Self-healing did not resolve the build. Manual intervention required."
           fi
