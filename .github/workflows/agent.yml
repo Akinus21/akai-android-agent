@@ -7,9 +7,17 @@ on:
         description: 'Additional instructions for the agent'
         required: false
         default: ''
+  workflow_run:
+    workflows: ["Build Android APK"]
+    types:
+      - completed
+    branches: [main]
 
 jobs:
   autonomous-agent-fix:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -55,14 +63,14 @@ jobs:
       - name: Execute Self-Healing Loop
         env:
           OLLAMA_API_BASE: "https://ollama.akinus21.com"
-          AIDER_MODEL: "ollama_chat/glm-5.1:cloud"
+          AIDER_MODEL: "ollama_chat/minimax-m2.7:cloud"
         run: |
           git config --global user.name "AkAgent Bot"
           git config --global user.email "aktags-bot@akinus21.com"
 
           PROMPT="Read AGENTS.md for project context. Then run './gradlew assembleDebug'. If the build fails, read the terminal logs, trace back to the broken code, update the code to fix the issue, and re-test. Repeat until the build passes successfully. ${PROMPT_EXTRA:-}"
 
-          echo "Spawning Aider agent with model: ollama_chat/glm-5.1:cloud"
+          echo "Spawning Aider agent with model: minimax-m2.7:cloud"
           aider --architect \
             --message "$PROMPT" \
             --no-stream \
