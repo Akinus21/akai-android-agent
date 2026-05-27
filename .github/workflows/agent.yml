@@ -1,0 +1,74 @@
+name: Self-Healing Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Additional instructions for the agent'
+        required: false
+        default: ''
+
+jobs:
+  autonomous-agent-fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install System Utilities & Python env
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -yq cmake ninja-build python3-pip
+          pip3 install aider-chat --break-system-packages
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK and accept licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "ndk;27.0.12077973" 2>&1 || sdkmanager --install "ndk;26.1.10909125" 2>&1
+          NDK_DIR=$(ls -d ${ANDROID_HOME}/ndk/2* | sort -V | tail -1)
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Setup Gradle
+        run: chmod +x gradlew
+
+      - name: Execute Self-Healing Loop
+        env:
+          OLLAMA_API_BASE: "https://ollama.akinus21.com"
+          AIDER_MODEL: "ollama_chat/glm-5.1:cloud"
+        run: |
+          git config --global user.name "AkAgent Bot"
+          git config --global user.email "aktags-bot@akinus21.com"
+
+          PROMPT="Read AGENTS.md for project context. Then run './gradlew assembleDebug'. If the build fails, read the terminal logs, trace back to the broken code, update the code to fix the issue, and re-test. Repeat until the build passes successfully. ${PROMPT_EXTRA:-}"
+
+          echo "Spawning Aider agent with model: ollama_chat/glm-5.1:cloud"
+          aider --architect \
+            --message "$PROMPT" \
+            --no-stream \
+            --yes
+
+      - name: Push Agent Corrections
+        if: success()
+        run: |
+          git diff --quiet HEAD || git push "https://x-access-token:${{ secrets.GH_TOKEN || github.token }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref_name }}
