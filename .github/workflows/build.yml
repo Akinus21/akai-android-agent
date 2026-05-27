@@ -253,11 +253,12 @@ jobs:
             "https://webhook.akinus21.com/webhook/akai-net-build"
 
       - name: Notify webhook — failure
-        if: failure() && github.ref == 'refs/heads/main'
+        if: failure()
         env:
           WEBHOOK_HMAC_SECRET: ${{ secrets.WEBHOOK_HMAC_SECRET }}
         run: |
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          SECRET_KEY="${WEBHOOK_HMAC_SECRET:-fallback_unsigned_key}"
           if [ -f /tmp/build-errors.txt ]; then
             ERROR_TEXT=$(head -80 /tmp/build-errors.txt)
           else
@@ -272,7 +273,7 @@ jobs:
             --arg actor   "${{ github.actor }}" \
             '{event:$event,repo:$repo,run_url:$run_url,sha:$sha,ref:$ref,actor:$actor,error:[inputs]|join("\n")}' > /tmp/webhook-payload.json
           SIG=$(cat /tmp/webhook-payload.json | \
-            openssl dgst -sha256 -hmac "$WEBHOOK_HMAC_SECRET" | awk '{print "sha256="$2}')
+            openssl dgst -sha256 -hmac "$SECRET_KEY" | awk '{print "sha256="$2}')
           curl -fsSL -X POST \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: build_failure" \
