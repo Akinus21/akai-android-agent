@@ -10,15 +10,16 @@ object RpcServerManager {
     private const val TAG = "akai-agent"
     private const val RPC_BINARY = "rpc-server"
     private const val BIN_DIR = "rpc-bin"
+    private const val EXEC_DIR = "/data/local/tmp"
 
     private var process: Process? = null
 
     fun getBinaryPath(context: Context): File {
-        return File(context.filesDir, BIN_DIR)
+        return File(EXEC_DIR, RPC_BINARY)
     }
 
     fun ensureBinary(context: Context): File {
-        val targetDir = File(context.filesDir, BIN_DIR)
+        val targetDir = File(EXEC_DIR)
         targetDir.mkdirs()
 
         val binary = File(targetDir, RPC_BINARY)
@@ -67,7 +68,7 @@ object RpcServerManager {
         stop()
         val binary = ensureBinary(context)
 
-        val cmd = mutableListOf(binary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
+        val cmd = mutableListOf("/system/bin/sh", "-c", "${binary.absolutePath} --host 127.0.0.1 --port $port")
 
         Log.i(TAG, "Starting rpc-server: ${cmd.joinToString(" ")}")
         val pb = ProcessBuilder(cmd)
