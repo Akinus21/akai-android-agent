@@ -9,16 +9,16 @@ import java.io.InputStream
 object RpcServerManager {
     private const val TAG = "akai-agent"
     private const val RPC_BINARY = "rpc-server"
-    private const val CACHE_DIR = "rpc-bin"
+    private const val BIN_DIR = "rpc-bin"
 
     private var process: Process? = null
 
     fun getBinaryPath(context: Context): File {
-        return File(context.cacheDir, CACHE_DIR)
+        return File(context.filesDir, BIN_DIR)
     }
 
     fun ensureBinary(context: Context): File {
-        val targetDir = File(context.cacheDir, CACHE_DIR)
+        val targetDir = File(context.filesDir, BIN_DIR)
         targetDir.mkdirs()
 
         val binary = File(targetDir, RPC_BINARY)
@@ -58,6 +58,9 @@ object RpcServerManager {
         FileOutputStream(target).use { output ->
             input.copyTo(output)
         }
+        target.setReadable(true, false)
+        target.setWritable(true, false)
+        target.setExecutable(true, false)
     }
 
     fun start(context: Context, port: Int): Process {
@@ -69,7 +72,7 @@ object RpcServerManager {
         Log.i(TAG, "Starting rpc-server: ${cmd.joinToString(" ")}")
         val pb = ProcessBuilder(cmd)
             .redirectErrorStream(true)
-            .directory(context.cacheDir)
+            .directory(context.filesDir)
 
         val env = pb.environment()
         val ldPath = mutableListOf(context.applicationInfo.nativeLibraryDir)
