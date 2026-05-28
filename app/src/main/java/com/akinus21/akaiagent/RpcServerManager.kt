@@ -71,9 +71,11 @@ object RpcServerManager {
         Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", targetDir.absolutePath)).waitFor()
         Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", binary.absolutePath)).waitFor()
 
-        val execCmd = listOf("/system/bin/sh", "-c", "${binary.absolutePath} --host 127.0.0.1 --port $port")
+        val execCmd = listOf(binary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
         Log.i(TAG, "Starting rpc-server: ${execCmd.joinToString(" ")}")
         val pb = ProcessBuilder(execCmd)
+            .redirectErrorStream(true)
+            .directory(context.filesDir)
             .redirectErrorStream(true)
             .directory(context.filesDir)
 
@@ -94,7 +96,21 @@ object RpcServerManager {
                 val reader = proc.inputStream.bufferedReader()
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    Log.d(TAG, "rpc-server: $line")
+                    Log.i(TAG, "rpc-server: $line")
+                }
+            } catch (_: Exception) {}
+
+            if (proc.isAlive) return@Thread
+            val exitCode = try { proc.exitValue() } catch (_: Exception) { -1 }
+            Log.e(TAG, "rpc-server exited with code $exitCode")
+        }.start()
+
+        Thread {
+            try {
+                val stderr = proc.errorStream.bufferedReader()
+                var line: String?
+                while (stderr.readLine().also { line = it } != null) {
+                    Log.e(TAG, "rpc-server stderr: $line")
                 }
             } catch (_: Exception) {}
         }.start()
