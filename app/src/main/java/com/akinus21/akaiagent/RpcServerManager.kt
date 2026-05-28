@@ -60,7 +60,7 @@ object RpcServerManager {
     }
 
     fun copyToTmpAndGetPath(context: Context, binary: File): File {
-        val tmpDir = File("/data/local/tmp/rpc-bin")
+        val tmpDir = File(context.cacheDir, "rpc_bin")
         tmpDir.mkdirs()
         val tmpBinary = File(tmpDir, RPC_BINARY)
 
@@ -77,7 +77,7 @@ object RpcServerManager {
         val binary = ensureBinary(context)
         val execBinary = copyToTmpAndGetPath(context, binary)
 
-        val execCmd = listOf(execBinary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
+        val execCmd = listOf("/system/bin/sh", "-c", "${execBinary.absolutePath} --host 127.0.0.1 --port $port")
         Log.i(TAG, "Starting rpc-server: ${execCmd.joinToString(" ")}")
         val pb = ProcessBuilder(execCmd)
             .redirectErrorStream(true)
