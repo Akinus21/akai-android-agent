@@ -67,6 +67,7 @@ object RpcServerManager {
         stop()
         val binary = ensureBinary(context)
 
+        val targetDir = File(context.filesDir, BIN_DIR)
         Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", targetDir.absolutePath)).waitFor()
         Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", binary.absolutePath)).waitFor()
 
