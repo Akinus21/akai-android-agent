@@ -67,6 +67,7 @@ object RpcServerManager {
         stop()
         val binary = ensureBinary(context)
 
+        Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", targetDir.absolutePath)).waitFor()
         Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", binary.absolutePath)).waitFor()
 
         val execCmd = listOf("/system/bin/sh", "-c", "${binary.absolutePath} --host 127.0.0.1 --port $port")
