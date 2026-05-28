@@ -22,7 +22,7 @@ object RpcServerManager {
         targetDir.mkdirs()
 
         val binary = File(targetDir, RPC_BINARY)
-        if (binary.exists() && binary.canExecute()) {
+        if (binary.exists() && binary.length() > 0) {
             return binary
         }
 
@@ -49,8 +49,7 @@ object RpcServerManager {
             }
         }
 
-        binary.setExecutable(true)
-        Log.i(TAG, "rpc-server: path=${binary.absolutePath} size=${binary.length()} canExec=${binary.canExecute()}")
+        Log.i(TAG, "rpc-server: path=${binary.absolutePath} size=${binary.length()}")
         return binary
     }
 
@@ -58,28 +57,30 @@ object RpcServerManager {
         FileOutputStream(target).use { output ->
             input.copyTo(output)
         }
-        target.setReadable(true, false)
-        target.setWritable(true, false)
-        target.setExecutable(true, false)
+    }
+
+    fun copyToTmpAndGetPath(context: Context, binary: File): File {
+        val tmpDir = File("/data/local/tmp/rpc-bin")
+        tmpDir.mkdirs()
+        val tmpBinary = File(tmpDir, RPC_BINARY)
+
+        if (tmpBinary.exists()) tmpBinary.delete()
+        binary.copyTo(tmpBinary, overwrite = true)
+
+        Runtime.getRuntime().exec(arrayOf("chmod", "755", tmpBinary.absolutePath)).waitFor()
+        Log.i(TAG, "Copied to tmp: ${tmpBinary.absolutePath} size=${tmpBinary.length()}")
+        return tmpBinary
     }
 
     fun start(context: Context, port: Int): Process {
         stop()
         val binary = ensureBinary(context)
+        val execBinary = copyToTmpAndGetPath(context, binary)
 
-        val targetDir = File(context.filesDir, BIN_DIR)
-        Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", targetDir.absolutePath)).waitFor()
-        Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", binary.absolutePath)).waitFor()
-
-        val execCmd = listOf("/system/bin/sh", "-c", "${binary.absolutePath} --host 127.0.0.1 --port $port")
+        val execCmd = listOf(execBinary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
         Log.i(TAG, "Starting rpc-server: ${execCmd.joinToString(" ")}")
         val pb = ProcessBuilder(execCmd)
             .redirectErrorStream(true)
-            .directory(context.filesDir)
-            .redirectErrorStream(true)
-            .directory(context.filesDir)
-            .redirectErrorStream(true)
-            .directory(context.filesDir)
 
         val env = pb.environment()
         val ldPath = mutableListOf(context.applicationInfo.nativeLibraryDir)
@@ -98,14 +99,12 @@ object RpcServerManager {
                 val reader = proc.inputStream.bufferedReader()
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
-                    Log.i(TAG, "rpc-server stdout: $line")
+                    Log.i(TAG, "rpc-server: $line")
                 }
             } catch (_: Exception) {}
 
             val exitCode = try { proc.waitFor() } catch (_: Exception) { -1 }
-            if (exitCode != 0) {
-                Log.e(TAG, "rpc-server exited with code $exitCode")
-            }
+            Log.i(TAG, "rpc-server exited with code $exitCode")
         }.start()
 
         return proc
