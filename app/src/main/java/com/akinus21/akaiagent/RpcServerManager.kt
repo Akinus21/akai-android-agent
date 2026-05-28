@@ -69,7 +69,7 @@ object RpcServerManager {
 
         Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", binary.absolutePath)).waitFor()
 
-        val execCmd = listOf(binary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
+        val execCmd = listOf("/system/bin/sh", "-c", "${binary.absolutePath} --host 127.0.0.1 --port $port")
         Log.i(TAG, "Starting rpc-server: ${execCmd.joinToString(" ")}")
         val pb = ProcessBuilder(execCmd)
             .redirectErrorStream(true)
