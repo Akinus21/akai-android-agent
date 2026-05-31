@@ -70,6 +70,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
     _class: JClass,
     queue_url: JString,
     username: JString,
+    device_name: JString,
 ) -> jint {
     let queue_url: String = match env.get_string(&queue_url) {
         Ok(s) => s.into(),
@@ -79,6 +80,12 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
         Ok(s) => s.into(),
         Err(_) => return -1,
     };
+    let device_name: String = match env.get_string(&device_name) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+
+    let worker_id = format!("{}:{}", username, device_name);
 
     let data_dir = get_data_dir();
     if data_dir.is_empty() {
@@ -100,8 +107,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
     rt.block_on(async {
         let client = queue_client::QueueClient::new(&queue_url, &username);
         let cert_dir = format!("{}/tunnel-certs", data_dir);
-        let worker_name = format!("android-{}", username);
-        let certs = match client.register_and_fetch_certs(&cert_dir, &worker_name).await {
+        let certs = match client.register_and_fetch_certs(&cert_dir, &worker_id).await {
             Ok(c) => c,
             Err(e) => {
                 alog!(ERROR, "init failed: {e}");
@@ -109,7 +115,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
             }
         };
 
-        if let Err(e) = save_config_android(&data_dir, &queue_url, &username, &certs.tunnel_host, certs.tunnel_port) {
+        if let Err(e) = save_config_android(&data_dir, &queue_url, &username, &worker_id, &certs.tunnel_host, certs.tunnel_port) {
             alog!(ERROR, "failed to save config: {e}");
             return -5;
         }
@@ -191,12 +197,13 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSignReques
     }
 }
 
-fn save_config_android(data_dir: &str, queue_url: &str, username: &str, tunnel_host: &str, tunnel_port: u16) -> anyhow::Result<()> {
+fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_id: &str, tunnel_host: &str, tunnel_port: u16) -> anyhow::Result<()> {
     std::fs::create_dir_all(data_dir)?;
 
     let config = serde_json::json!({
         "queue_url": queue_url,
         "username": username,
+        "worker_id": worker_id,
         "tunnel_host": tunnel_host,
         "tunnel_port": tunnel_port,
     });

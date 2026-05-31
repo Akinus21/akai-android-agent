@@ -77,21 +77,13 @@ object RpcServerManager {
         val binary = ensureBinary(context)
         val execBinary = copyToTmpAndGetPath(context, binary)
 
-        val execCmd = listOf("/system/bin/sh", "-c", "${execBinary.absolutePath} --host 127.0.0.1 --port $port")
-        Log.i(TAG, "Starting rpc-server: ${execCmd.joinToString(" ")}")
-        val pb = ProcessBuilder(execCmd)
-            .redirectErrorStream(true)
+        val cmd = "${execBinary.absolutePath} --host 127.0.0.1 --port $port"
+        Log.i(TAG, "Starting rpc-server via Runtime.exec: $cmd")
 
-        val env = pb.environment()
-        val ldPath = mutableListOf(context.applicationInfo.nativeLibraryDir)
-        val systemLibs = listOf("/system/lib64", "/system/lib", "/vendor/lib64", "/vendor/lib")
-        for (dir in systemLibs) {
-            if (java.io.File(dir).exists()) ldPath.add(dir)
-        }
-        ldPath.add(env["LD_LIBRARY_PATH"] ?: "")
-        env["LD_LIBRARY_PATH"] = ldPath.joinToString(":")
+        val env = System.getenv().toMutableMap()
+        env["LD_LIBRARY_PATH"] = "/vendor/lib64:/system/lib64"
 
-        val proc = pb.start()
+        val proc = Runtime.getRuntime().exec(cmd, env.toList().toTypedArray())
         process = proc
 
         Thread {

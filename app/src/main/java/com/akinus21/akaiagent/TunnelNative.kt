@@ -4,7 +4,7 @@ import android.content.Context
 
 object TunnelNative {
     external fun nativeSetDataDir(dataDir: String)
-    external fun nativeInit(queueUrl: String, username: String): Int
+    external fun nativeInit(queueUrl: String, username: String, deviceName: String): Int
     external fun nativeConnect(host: String, port: Int, workerId: String, rpcPort: Int): Int
     external fun nativeGetPublicKey(): String?
     external fun nativeSignRequest(message: String): String?
@@ -22,8 +22,8 @@ object TunnelNative {
         }
     }
 
-    fun init(queueUrl: String, username: String): Int {
-        return nativeInit(queueUrl, username)
+    fun init(queueUrl: String, username: String, deviceName: String): Int {
+        return nativeInit(queueUrl, username, deviceName)
     }
 
     fun connect(host: String, port: Int, workerId: String, rpcPort: Int): Int {

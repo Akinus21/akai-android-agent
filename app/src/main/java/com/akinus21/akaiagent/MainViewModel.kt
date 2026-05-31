@@ -42,8 +42,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _state.value = WorkerState.Initializing
                 Log.i(TAG, "Initializing with queue=$queueUrl username=$username")
 
+                val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
                 val initResult = withContext(Dispatchers.IO) {
-                    TunnelNative.init(queueUrl, username)
+                    TunnelNative.init(queueUrl, username, deviceName)
                 }
 
                 when (initResult) {
@@ -76,9 +77,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                         val host = prefs.getString("tunnel_host", null) ?: "tunnel.akinus21.com"
                         val port = prefs.getInt("tunnel_port", 443)
-                        val workerId = android.os.Build.MODEL
-                            .replace(" ", "-")
-                            .lowercase()
+                        val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
+                        val workerId = "$username:$deviceName"
 
                         _state.value = WorkerState.Running(host)
                         startWorkerService(host, port, workerId, rpcPort)
@@ -97,7 +97,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startWithSavedConfig() {
         val host = savedTunnelHost.ifEmpty { "tunnel.akinus21.com" }
         val port = savedTunnelPort
-        val workerId = android.os.Build.MODEL.replace(" ", "-").lowercase()
+        val username = savedUsername
+        val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
+        val workerId = "$username:$deviceName"
         val rpcPort = 50052
 
         viewModelScope.launch {

@@ -50,22 +50,23 @@ impl QueueClient {
         }
     }
 
-    pub async fn register_and_fetch_certs(&self, cert_dir: &str, worker_name: &str) -> Result<TunnelCertsResponse> {
+    pub async fn register_and_fetch_certs(&self, cert_dir: &str, worker_id: &str) -> Result<TunnelCertsResponse> {
         let key_dir = format!("{}/../keys", cert_dir);
         crate::auth::ensure_keypair_android(&key_dir)?;
         let public_key_b64 = crate::auth::get_public_key_base64(&key_dir)?;
 
-        self.register_device(&key_dir, worker_name, &public_key_b64).await?;
+        self.register_device(&key_dir, worker_id, &public_key_b64).await?;
+        self.register_worker(worker_id).await?;
         self.fetch_tunnel_certs(&key_dir).await
     }
 
-    async fn register_device(&self, key_dir: &str, worker_name: &str, public_key_b64: &str) -> Result<()> {
+    async fn register_device(&self, key_dir: &str, worker_id: &str, public_key_b64: &str) -> Result<()> {
         let url = format!("{}/auth/register", self.base_url);
         alog!(INFO, "registering device at {}", url);
 
         let body = serde_json::json!({
             "username": self.username,
-            "worker_name": worker_name,
+            "worker_name": worker_id,
             "public_key": public_key_b64,
         });
         let body_bytes = serde_json::to_vec(&body)?;
@@ -76,7 +77,7 @@ impl QueueClient {
         let client = get_client();
         let resp = client.post(&url)
             .header("X-Akai-Username", &self.username)
-            .header("X-Akai-Device-Id", worker_name)
+            .header("X-Akai-Device-Id", worker_id)
             .header("X-Akai-Timestamp", &timestamp)
             .header("X-Akai-Signature", &signature)
             .header("Content-Type", "application/json")
@@ -99,7 +100,7 @@ impl QueueClient {
             let duo_url = format!("{}/auth/duo", self.base_url);
             let duo_body = serde_json::json!({
                 "username": self.username,
-                "worker_name": worker_name,
+                "worker_name": worker_id,
                 "public_key": public_key_b64,
             });
 
@@ -121,6 +122,42 @@ impl QueueClient {
         }
 
         bail!("register failed: {} - {}", status, body_text)
+    }
+
+    async fn register_worker(&self, worker_id: &str) -> Result<()> {
+        let url = format!("{}/workers/register", self.base_url);
+        alog!(INFO, "registering worker at {}", url);
+
+        let body = serde_json::json!({
+            "id": worker_id,
+            "name": worker_id,
+            "wg_ip": "",
+            "wg_peer_id": "",
+            "gpu": true,
+            "vram_gb": 0.0,
+            "rpc_port": 50052,
+        });
+
+        let body_bytes = serde_json::to_vec(&body)?;
+
+        let client = get_client();
+        let resp = client.post(&url)
+            .header("X-Worker-Key", "")
+            .header("Content-Type", "application/json")
+            .body(body_bytes)
+            .send()
+            .await
+            .context("worker register request failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_default();
+            alog!(ERROR, "worker register failed: {} - {}", status, body_text);
+            bail!("worker register failed: {} - {}", status, body_text);
+        }
+
+        alog!(INFO, "worker registered successfully");
+        Ok(())
     }
 
     async fn fetch_tunnel_certs(&self, key_dir: &str) -> Result<TunnelCertsResponse> {
