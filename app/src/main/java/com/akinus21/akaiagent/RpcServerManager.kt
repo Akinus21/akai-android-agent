@@ -80,18 +80,18 @@ object RpcServerManager {
         val cmd = "${execBinary.absolutePath} --host 127.0.0.1 --port $port"
         Log.i(TAG, "Starting rpc-server via Runtime.exec: $cmd")
 
-        val env = System.getenv().toMutableMap()
-        env["LD_LIBRARY_PATH"] = "/vendor/lib64:/system/lib64"
+        val envArray = System.getenv().entries.map { "${it.key}=${it.value}" }.toTypedArray()
 
-        val proc = Runtime.getRuntime().exec(cmd, env.toList().toTypedArray())
+        val proc = Runtime.getRuntime().exec(arrayOf("/bin/sh", "-c", cmd), envArray)
         process = proc
 
         Thread {
             try {
                 val reader = proc.inputStream.bufferedReader()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
+                var line: String? = reader.readLine()
+                while (line != null) {
                     Log.i(TAG, "rpc-server: $line")
+                    line = reader.readLine()
                 }
             } catch (_: Exception) {}
 
