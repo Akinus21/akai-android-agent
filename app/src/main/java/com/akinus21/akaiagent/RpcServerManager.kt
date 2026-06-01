@@ -5,6 +5,7 @@ import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.lang.ProcessBuilder
 
 object RpcServerManager {
     private const val TAG = "akai-agent"
@@ -67,8 +68,8 @@ object RpcServerManager {
         if (tmpBinary.exists()) tmpBinary.delete()
         binary.copyTo(tmpBinary, overwrite = true)
 
-        Runtime.getRuntime().exec(arrayOf("chmod", "755", tmpBinary.absolutePath)).waitFor()
-        Log.i(TAG, "Copied to tmp: ${tmpBinary.absolutePath} size=${tmpBinary.length()}")
+        tmpBinary.setExecutable(true, false)
+        Log.i(TAG, "Copied to tmp: ${tmpBinary.absolutePath} size=${tmpBinary.length()} mode=${tmpBinary.canExecute()}")
         return tmpBinary
     }
 
@@ -77,29 +78,35 @@ object RpcServerManager {
         val binary = ensureBinary(context)
         val execBinary = copyToTmpAndGetPath(context, binary)
 
-        val cmd = "${execBinary.absolutePath} --host 127.0.0.1 --port $port"
-        Log.i(TAG, "Starting rpc-server via Runtime.exec: $cmd")
+        val cmd = listOf(execBinary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
+        Log.i(TAG, "Starting rpc-server: $cmd")
 
-        val envArray = System.getenv().entries.map { "${it.key}=${it.value}" }.toTypedArray()
+        try {
+            val pb = ProcessBuilder(cmd)
+            pb.directory(execBinary.parentFile)
+            pb.redirectErrorStream(true)
+            val proc = pb.start()
+            process = proc
 
-        val proc = Runtime.getRuntime().exec(arrayOf("/bin/sh", "-c", cmd), envArray)
-        process = proc
+            Thread {
+                try {
+                    val reader = proc.inputStream.bufferedReader()
+                    var line: String? = reader.readLine()
+                    while (line != null) {
+                        Log.i(TAG, "rpc-server: $line")
+                        line = reader.readLine()
+                    }
+                } catch (_: Exception) {}
 
-        Thread {
-            try {
-                val reader = proc.inputStream.bufferedReader()
-                var line: String? = reader.readLine()
-                while (line != null) {
-                    Log.i(TAG, "rpc-server: $line")
-                    line = reader.readLine()
-                }
-            } catch (_: Exception) {}
+                val exitCode = try { proc.waitFor() } catch (_: Exception) { -1 }
+                Log.i(TAG, "rpc-server exited with code $exitCode")
+            }.start()
 
-            val exitCode = try { proc.waitFor() } catch (_: Exception) { -1 }
-            Log.i(TAG, "rpc-server exited with code $exitCode")
-        }.start()
-
-        return proc
+            return proc
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start rpc-server: ${e.message}")
+            throw e
+        }
     }
 
     fun stop() {
