@@ -68,8 +68,14 @@ object RpcServerManager {
         if (tmpBinary.exists()) tmpBinary.delete()
         binary.copyTo(tmpBinary, overwrite = true)
 
-        tmpBinary.setExecutable(true, false)
-        Log.i(TAG, "Copied to tmp: ${tmpBinary.absolutePath} size=${tmpBinary.length()} mode=${tmpBinary.canExecute()}")
+        try {
+            val proc = Runtime.getRuntime().exec(arrayOf("/system/bin/chmod", "755", tmpBinary.absolutePath))
+            val exited = proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            if (!exited) proc.destroyForcibly()
+        } catch (e: Exception) {
+            Log.w(TAG, "chmod failed: ${e.message}")
+        }
+        Log.i(TAG, "Copied to tmp: ${tmpBinary.absolutePath} size=${tmpBinary.length()} canExec=${tmpBinary.canExecute()}")
         return tmpBinary
     }
 
