@@ -8,6 +8,7 @@ object TunnelNative {
     external fun nativeConnect(host: String, port: Int, workerId: String, rpcPort: Int): Int
     external fun nativeGetPublicKey(): String?
     external fun nativeSignRequest(message: String): String?
+    external fun nativeHeartbeat(queueUrl: String, username: String, workerId: String): String?
 
     private var loaded = false
 
@@ -36,5 +37,9 @@ object TunnelNative {
 
     fun signRequest(message: String): String? {
         return nativeSignRequest(message)
+    }
+
+    fun heartbeat(queueUrl: String, username: String, workerId: String): String? {
+        return nativeHeartbeat(queueUrl, username, workerId)
     }
 }

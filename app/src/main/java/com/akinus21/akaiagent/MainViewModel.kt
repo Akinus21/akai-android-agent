@@ -115,10 +115,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun pollForModel(queueUrl: String, username: String, workerId: String): String {
-        // For now, return empty - the actual heartbeat mechanism will be handled
-        // by the Rust tunnel code which has the signature logic
-        // This is a placeholder - real implementation would need to call queue heartbeat
-        return prefs.getString("current_model", "") ?: ""
+        // Call native heartbeat to get current model from queue
+        return try {
+            val result = TunnelNative.heartbeat(queueUrl, username, workerId)
+            if (result != null && result.isNotEmpty()) {
+                prefs.edit().putString("current_model", result).apply()
+                result
+            } else {
+                prefs.getString("current_model", "") ?: ""
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Heartbeat poll failed: ${e.message}")
+            prefs.getString("current_model", "") ?: ""
+        }
     }
 
     fun startWithSavedConfig() {
