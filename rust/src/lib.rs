@@ -115,7 +115,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
             }
         };
 
-        if let Err(e) = save_config_android(&data_dir, &queue_url, &username, &worker_id, &certs.tunnel_host, certs.tunnel_port) {
+        if let Err(e) = save_config_android(&data_dir, &queue_url, &username, &worker_id, &certs.tunnel_host, certs.tunnel_port, "") {
             alog!(ERROR, "failed to save config: {e}");
             return -5;
         }
@@ -197,7 +197,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSignReques
     }
 }
 
-fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_id: &str, tunnel_host: &str, tunnel_port: u16) -> anyhow::Result<()> {
+fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_id: &str, tunnel_host: &str, tunnel_port: u16, model: &str) -> anyhow::Result<()> {
     std::fs::create_dir_all(data_dir)?;
 
     let config = serde_json::json!({
@@ -206,6 +206,7 @@ fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_i
         "worker_id": worker_id,
         "tunnel_host": tunnel_host,
         "tunnel_port": tunnel_port,
+        "model": model,
     });
 
     let config_path = format!("{}/config.json", data_dir);
@@ -215,4 +216,60 @@ fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_i
     std::fs::write(&prefs_path, serde_json::to_string_pretty(&config)?)?;
 
     Ok(())
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeHeartbeat(
+    mut env: JNIEnv,
+    _class: JClass,
+    queue_url: JString,
+    username: JString,
+    worker_id: JString,
+) -> jstring {
+    let queue_url: String = match env.get_string(&queue_url) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let username: String = match env.get_string(&username) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let worker_id: String = match env.get_string(&worker_id) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let data_dir = get_data_dir();
+    let key_dir = format!("{}/keys", data_dir);
+
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let result = rt.block_on(async {
+        let client = queue_client::QueueClient::new(&queue_url, &username);
+        client.heartbeat(&key_dir, &worker_id, true, 4.0, 50052).await
+    });
+
+    match result {
+        Ok(resp) => {
+            let model = resp.model;
+            // Update config with new model
+            if let Ok(cfg) = std::fs::read_to_string(format!("{}/android-prefs.json", data_dir)) {
+                if let Ok(mut obj) = serde_json::from_str::<serde_json::Value>(&cfg) {
+                    obj["model"] = serde_json::json!(model);
+                    let _ = std::fs::write(format!("{}/android-prefs.json", data_dir), serde_json::to_string_pretty(&obj).unwrap_or_default());
+                    let _ = std::fs::write(format!("{}/config.json", data_dir), serde_json::to_string_pretty(&obj).unwrap_or_default());
+                }
+            }
+            env.new_string(model)
+                .map(|s| s.into_raw())
+                .unwrap_or(std::ptr::null_mut())
+        }
+        Err(e) => {
+            alog!(ERROR, "heartbeat failed: {e}");
+            std::ptr::null_mut()
+        }
+    }
 }

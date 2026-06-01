@@ -12,14 +12,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 sealed class WorkerState {
     object Idle : WorkerState()
     object Initializing : WorkerState()
     object FetchingCerts : WorkerState()
-    object StartingRpc : WorkerState()
+    object StartingPetals : WorkerState()
     object Connecting : WorkerState()
-    data class Running(val host: String) : WorkerState()
+    data class Running(val host: String, val model: String) : WorkerState()
     data class Error(val message: String) : WorkerState()
 }
 
@@ -30,6 +32,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("akai_agent", 0)
     private val ctx = application
+
+    private var currentModel: String = ""
 
     val savedQueueUrl: String get() = prefs.getString("queue_url", "") ?: ""
     val savedUsername: String get() = prefs.getString("username", "") ?: ""
@@ -63,27 +67,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             .putString("username", username)
                             .apply()
 
-                        _state.value = WorkerState.StartingRpc
-                        val rpcPort = 50052
-                        try {
-                            withContext(Dispatchers.IO) {
-                                RpcServerManager.ensureBinary(ctx)
-                                RpcServerManager.start(ctx, rpcPort)
-                            }
-                            Log.i(TAG, "rpc-server started on $rpcPort")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "rpc-server start failed, continuing without: ${e.message}")
-                        }
-
                         val host = prefs.getString("tunnel_host", null) ?: "tunnel.akinus21.com"
                         val port = prefs.getInt("tunnel_port", 443)
-                        val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
                         val workerId = "$username:$deviceName"
 
-                        _state.value = WorkerState.Running(host)
-                        startWorkerService(host, port, workerId, rpcPort)
-                    }
-                    else -> {
+                        // Start heartbeat polling to get model
+                        startHeartbeatPolling(queueUrl, username, workerId, host, port)
+
+                    } else -> {
                         _state.value = WorkerState.Error("Init failed: $initResult")
                     }
                 }
@@ -94,24 +85,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun startHeartbeatPolling(queueUrl: String, username: String, workerId: String, tunnelHost: String, tunnelPort: Int) {
+        viewModelScope.launch {
+            while (true) {
+                try {
+                    val model = pollForModel(queueUrl, username, workerId)
+                    if (model.isNotEmpty() && model != currentModel) {
+                        Log.i(TAG, "Model changed: $currentModel -> $model")
+                        currentModel = model
+
+                        _state.value = WorkerState.StartingPetals
+                        withContext(Dispatchers.IO) {
+                            PetalsServerManager.stop()
+                            PetalsServerManager.start(ctx, model, 50052)
+                        }
+                        Log.i(TAG, "Petals started for model: $model")
+
+                        _state.value = WorkerState.Running(tunnelHost, model)
+
+                        // Start tunnel connection
+                        startWorkerService(tunnelHost, tunnelPort, workerId, 50052)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Heartbeat poll error: ${e.message}")
+                }
+                kotlinx.coroutines.delay(30_000) // Poll every 30 seconds
+            }
+        }
+    }
+
+    private fun pollForModel(queueUrl: String, username: String, workerId: String): String {
+        // For now, return empty - the actual heartbeat mechanism will be handled
+        // by the Rust tunnel code which has the signature logic
+        // This is a placeholder - real implementation would need to call queue heartbeat
+        return prefs.getString("current_model", "") ?: ""
+    }
+
     fun startWithSavedConfig() {
         val host = savedTunnelHost.ifEmpty { "tunnel.akinus21.com" }
         val port = savedTunnelPort
         val username = savedUsername
         val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
         val workerId = "$username:$deviceName"
-        val rpcPort = 50052
 
         viewModelScope.launch {
             try {
-                _state.value = WorkerState.StartingRpc
+                _state.value = WorkerState.StartingPetals
+                val model = prefs.getString("current_model", "meta-llama/Meta-Llama-3.1-8B-Instruct") ?: "meta-llama/Meta-Llama-3.1-8B-Instruct"
+                currentModel = model
+
                 withContext(Dispatchers.IO) {
-                    RpcServerManager.ensureBinary(ctx)
-                    RpcServerManager.start(ctx, rpcPort)
+                    PetalsServerManager.start(ctx, model, 50052)
                 }
 
-                _state.value = WorkerState.Running(host)
-                startWorkerService(host, port, workerId, rpcPort)
+                _state.value = WorkerState.Running(host, model)
+                startWorkerService(host, port, workerId, 50052)
             } catch (e: Exception) {
                 _state.value = WorkerState.Error(e.message ?: "Unknown error")
             }
@@ -134,12 +162,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopWorker() {
+        PetalsServerManager.stop()
         ctx.stopService(android.content.Intent(ctx, WorkerService::class.java))
         _state.value = WorkerState.Idle
     }
 
     fun hasSavedConfig(): Boolean {
         return prefs.contains("queue_url") && prefs.contains("username")
+    }
+
+    fun updateModel(model: String) {
+        prefs.edit().putString("current_model", model).apply()
+        currentModel = model
     }
 
     private fun readTunnelConfigFromRust(): Pair<String, Int>? {

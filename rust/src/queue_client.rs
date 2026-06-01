@@ -29,6 +29,12 @@ fn get_client() -> &'static Client {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct HeartbeatResponse {
+    pub hub_commit: String,
+    pub model: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TunnelCertsResponse {
     pub ca_cert: String,
     pub worker_cert: String,
@@ -212,5 +218,49 @@ impl QueueClient {
         ).ok();
 
         Ok(certs)
+    }
+
+    pub async fn heartbeat(&self, key_dir: &str, worker_id: &str, gpu: bool, vram_gb: f64, rpc_port: u16) -> Result<HeartbeatResponse> {
+        let url = format!("{}/workers/{}/heartbeat", self.base_url, worker_id);
+        alog!(INFO, "sending heartbeat to {}", url);
+
+        let body = serde_json::json!({
+            "gpu": gpu,
+            "vram_gb": vram_gb,
+            "rpc_port": rpc_port,
+            "alive": true,
+            "hub_reachable": true,
+        });
+
+        let body_bytes = serde_json::to_vec(&body)?;
+
+        let timestamp = crate::auth::timestamp_millis();
+        let path = format!("/workers/{}/heartbeat", worker_id);
+        let signature = crate::auth::sign_request(key_dir, &timestamp, "POST", &path, &body_bytes)?;
+
+        let client = get_client();
+        let resp = client.post(&url)
+            .header("X-Akai-Username", &self.username)
+            .header("X-Akai-Device-Id", worker_id)
+            .header("X-Akai-Timestamp", &timestamp)
+            .header("X-Akai-Signature", &signature)
+            .header("Content-Type", "application/json")
+            .body(body_bytes)
+            .send()
+            .await
+            .context("heartbeat request failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body_text = resp.text().await.unwrap_or_default();
+            alog!(ERROR, "heartbeat failed: {} - {}", status, body_text);
+            bail!("heartbeat failed: {} - {}", status, body_text);
+        }
+
+        let heartbeat_resp: HeartbeatResponse = resp.json().await
+            .context("failed to parse heartbeat response")?;
+
+        alog!(INFO, "heartbeat OK - model: {}", heartbeat_resp.model);
+        Ok(heartbeat_resp)
     }
 }
