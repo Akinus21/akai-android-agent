@@ -1,6 +1,7 @@
 mod tunnel;
 mod auth;
 mod queue_client;
+mod worker;
 
 use jni::objects::JClass;
 use jni::objects::JString;
@@ -272,4 +273,53 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeHeartbeat(
             std::ptr::null_mut()
         }
     }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeStartWorker(
+    mut env: JNIEnv,
+    _class: JClass,
+    hub_addr: JString,
+    worker_id: JString,
+    layer_offset: jint,
+    num_layers: jint,
+) -> jint {
+    let hub_addr: String = match env.get_string(&hub_addr) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    let worker_id: String = match env.get_string(&worker_id) {
+        Ok(s) => s.into(),
+        Err(_) => return -2,
+    };
+
+    let config = worker::WorkerConfig {
+        hub_addr,
+        worker_id,
+        has_gpu: false,
+        vram_gb: 0.0,
+        layer_offset: layer_offset as usize,
+        num_layers: num_layers as usize,
+    };
+
+    alog!(INFO, "Starting worker: hub={}, layers={}-{}",
+          config.hub_addr, config.layer_offset, config.layer_offset + config.num_layers);
+
+    std::thread::spawn(|| {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                alog!(ERROR, "failed to create runtime: {}", e);
+                return;
+            }
+        };
+
+        rt.block_on(async {
+            if let Err(e) = worker::run_worker(config).await {
+                alog!(ERROR, "worker error: {}", e);
+            }
+        });
+    });
+
+    0
 }
