@@ -184,7 +184,10 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeStartWorke
         Err(_) => return -2,
     };
     let vram_gb: f32 = match env.get_string(&vram_gb_str) {
-        Ok(s) => s.parse().unwrap_or(0.0),
+        Ok(s) => {
+            let v: String = s.into();
+            v.parse().unwrap_or(0.0)
+        }
         Err(_) => 0.0,
     };
 

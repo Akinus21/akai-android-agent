@@ -1,10 +1,10 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{info, error};
 
 fn encode_msg(msg: &HubMessage) -> Vec<u8> {
     let mut data = serde_json::to_vec(msg).unwrap_or_default();
@@ -178,7 +178,7 @@ pub async fn run_worker(config: WorkerConfig) -> Result<()> {
             Ok(stream) => {
                 info!("Connected to hub at {}", config.hub_addr);
 
-                let (reader, mut writer) = stream.into_split();
+                let (reader, writer) = stream.into_split();
                 let reader = Arc::new(Mutex::new(reader));
                 let writer = Arc::new(Mutex::new(writer));
 
