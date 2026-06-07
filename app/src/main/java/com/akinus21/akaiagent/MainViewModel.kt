@@ -4,24 +4,18 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 sealed class WorkerState {
     object Idle : WorkerState()
-    object Initializing : WorkerState()
-    object FetchingCerts : WorkerState()
-    object StartingPetals : WorkerState()
-    object Connecting : WorkerState()
-    data class Running(val host: String, val model: String) : WorkerState()
+    object EnrollingVpn : WorkerState()
+    object EnrollingVpnFailed : WorkerState()
+    object StartingWorker : WorkerState()
+    data class Running(val hubAddr: String, val model: String) : WorkerState()
     data class Error(val message: String) : WorkerState()
 }
 
@@ -35,49 +29,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var currentModel: String = ""
 
-    val savedQueueUrl: String get() = prefs.getString("queue_url", "") ?: ""
+    val savedHubAddr: String get() = prefs.getString("hub_addr", "") ?: ""
+    val savedApiUrl: String get() = prefs.getString("api_url", "") ?: ""
     val savedUsername: String get() = prefs.getString("username", "") ?: ""
-    val savedTunnelHost: String get() = prefs.getString("tunnel_host", "") ?: ""
-    val savedTunnelPort: Int get() = prefs.getInt("tunnel_port", 443)
 
-    fun initAndStart(queueUrl: String, username: String) {
+    fun initAndStart(apiUrl: String, username: String) {
         viewModelScope.launch {
             try {
-                _state.value = WorkerState.Initializing
-                Log.i(TAG, "Initializing with queue=$queueUrl username=$username")
+                _state.value = WorkerState.EnrollingVpn
+                Log.i(TAG, "Enrolling VPN: apiUrl=$apiUrl username=$username")
 
                 val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
-                val initResult = withContext(Dispatchers.IO) {
-                    TunnelNative.init(queueUrl, username, deviceName)
+                val workerName = deviceName
+                val workerId = "$username:$deviceName"
+
+                TunnelNative.load(ctx)
+                val enrollResult = withContext(Dispatchers.IO) {
+                    TunnelNative.enrollVpn(apiUrl, username, workerName)
                 }
 
-                when (initResult) {
-                    0 -> {
-                        Log.i(TAG, "Init successful")
-
-                        readTunnelConfigFromRust()?.let { (host, port) ->
-                            prefs.edit()
-                                .putString("tunnel_host", host)
-                                .putInt("tunnel_port", port)
-                                .apply()
-                        }
-
-                        prefs.edit()
-                            .putString("queue_url", queueUrl)
-                            .putString("username", username)
-                            .apply()
-
-                        val host = prefs.getString("tunnel_host", null) ?: "tunnel.akinus21.com"
-                        val port = prefs.getInt("tunnel_port", 443)
-                        val workerId = "$username:$deviceName"
-
-                        // Start heartbeat polling to get model
-                        startHeartbeatPolling(queueUrl, username, workerId, host, port)
-
-                    } else -> {
-                        _state.value = WorkerState.Error("Init failed: $initResult")
-                    }
+                if (enrollResult == null) {
+                    _state.value = WorkerState.EnrollingVpnFailed
+                    _state.value = WorkerState.Error("VPN enrollment failed")
+                    return@launch
                 }
+
+                val hubAddr = enrollResult.hubVpnAddr
+                Log.i(TAG, "VPN enrolled, hub at $hubAddr, wg config: ${enrollResult.wireguardConfig.isNotEmpty()}")
+
+                prefs.edit()
+                    .putString("api_url", apiUrl)
+                    .putString("username", username)
+                    .putString("hub_addr", hubAddr)
+                    .putString("worker_id", workerId)
+                    .apply()
+
+                startWorkerWithHub(hubAddr, workerId)
+
             } catch (e: Exception) {
                 Log.e(TAG, "Init error", e)
                 _state.value = WorkerState.Error(e.message ?: "Unknown error")
@@ -85,118 +73,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun startHeartbeatPolling(queueUrl: String, username: String, workerId: String, tunnelHost: String, tunnelPort: Int) {
-        viewModelScope.launch {
-            while (true) {
-                try {
-                    val model = pollForModel(queueUrl, username, workerId)
-                    if (model.isNotEmpty() && model != currentModel) {
-                        Log.i(TAG, "Model changed: $currentModel -> $model")
-                        currentModel = model
-
-                        _state.value = WorkerState.StartingPetals
-                        withContext(Dispatchers.IO) {
-                            PetalsServerManager.stop()
-                            PetalsServerManager.start(ctx, model, 50052)
-                        }
-                        Log.i(TAG, "Petals started for model: $model")
-
-                        _state.value = WorkerState.Running(tunnelHost, model)
-
-                        // Start tunnel connection
-                        startWorkerService(tunnelHost, tunnelPort, workerId, 50052)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Heartbeat poll error: ${e.message}")
-                }
-                kotlinx.coroutines.delay(30_000) // Poll every 30 seconds
-            }
-        }
-    }
-
-    private fun pollForModel(queueUrl: String, username: String, workerId: String): String {
-        // Call native heartbeat to get current model from queue
-        return try {
-            val result = TunnelNative.heartbeat(queueUrl, username, workerId)
-            if (result != null && result.isNotEmpty()) {
-                prefs.edit().putString("current_model", result).apply()
-                result
-            } else {
-                prefs.getString("current_model", "") ?: ""
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Heartbeat poll failed: ${e.message}")
-            prefs.getString("current_model", "") ?: ""
-        }
-    }
-
     fun startWithSavedConfig() {
-        val host = savedTunnelHost.ifEmpty { "tunnel.akinus21.com" }
-        val port = savedTunnelPort
-        val username = savedUsername
-        val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
-        val workerId = "$username:$deviceName"
+        val hubAddr = savedHubAddr.ifEmpty { return }
+        val workerId = prefs.getString("worker_id", "") ?: ""
 
         viewModelScope.launch {
             try {
-                _state.value = WorkerState.StartingPetals
-                val model = prefs.getString("current_model", "meta-llama/Meta-Llama-3.1-8B-Instruct") ?: "meta-llama/Meta-Llama-3.1-8B-Instruct"
-                currentModel = model
-
-                withContext(Dispatchers.IO) {
-                    PetalsServerManager.start(ctx, model, 50052)
-                }
-
-                _state.value = WorkerState.Running(host, model)
-                startWorkerService(host, port, workerId, 50052)
+                _state.value = WorkerState.StartingWorker
+                TunnelNative.load(ctx)
+                startWorkerWithHub(hubAddr, workerId)
             } catch (e: Exception) {
                 _state.value = WorkerState.Error(e.message ?: "Unknown error")
             }
         }
     }
 
-    private fun startWorkerService(host: String, port: Int, workerId: String, rpcPort: Int) {
+    private fun startWorkerWithHub(hubAddr: String, workerId: String) {
+        _state.value = WorkerState.StartingWorker
+
+        val hasGpu = false // Android typically CPU-only
+        val vramGb = "0.0"
+
         val intent = android.content.Intent(ctx, WorkerService::class.java).apply {
             action = "ACTION_START"
-            putExtra("tunnel_host", host)
-            putExtra("tunnel_port", port)
+            putExtra("mode", "v2")
+            putExtra("hub_addr", hubAddr)
             putExtra("worker_id", workerId)
-            putExtra("rpc_port", rpcPort)
+            putExtra("has_gpu", hasGpu)
+            putExtra("vram_gb", vramGb)
+            putExtra("rpc_port", 50052)
         }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             ctx.startForegroundService(intent)
         } else {
             ctx.startService(intent)
         }
+
+        _state.value = WorkerState.Running(hubAddr, currentModel.ifEmpty { "pending" })
     }
 
     fun stopWorker() {
-        PetalsServerManager.stop()
+        RpcServerManager.stop()
         ctx.stopService(android.content.Intent(ctx, WorkerService::class.java))
         _state.value = WorkerState.Idle
     }
 
+    fun directConnect(hubAddr: String, username: String) {
+        val deviceName = android.os.Build.MODEL.replace(" ", "-").lowercase()
+        val workerId = "$username:$deviceName"
+
+        prefs.edit()
+            .putString("hub_addr", hubAddr)
+            .putString("username", username)
+            .putString("worker_id", workerId)
+            .apply()
+
+        viewModelScope.launch {
+            try {
+                _state.value = WorkerState.StartingWorker
+                TunnelNative.load(ctx)
+                startWorkerWithHub(hubAddr, workerId)
+            } catch (e: Exception) {
+                _state.value = WorkerState.Error(e.message ?: "Unknown error")
+            }
+        }
+    }
+
     fun hasSavedConfig(): Boolean {
-        return prefs.contains("queue_url") && prefs.contains("username")
+        return prefs.contains("hub_addr") && prefs.contains("username")
     }
 
     fun updateModel(model: String) {
         prefs.edit().putString("current_model", model).apply()
         currentModel = model
-    }
-
-    private fun readTunnelConfigFromRust(): Pair<String, Int>? {
-        return try {
-            val file = java.io.File(ctx.filesDir, "akai-agent/android-prefs.json")
-            if (!file.exists()) return null
-            val json = file.readText()
-            val obj = Gson().fromJson(json, Map::class.java) as Map<String, Any>
-            val host = obj["tunnel_host"] as? String ?: return null
-            val port = (obj["tunnel_port"] as? Double)?.toInt() ?: 443
-            Pair(host, port)
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to read tunnel config: ${e.message}")
-            null
-        }
     }
 }

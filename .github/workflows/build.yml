@@ -121,7 +121,7 @@ jobs:
             -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
             -DGGML_RPC=ON \
             -DGGML_CUDA=OFF \
-            -DGGML_VULKAN=OFF \
+            -DGGML_VULKAN=ON \
             -DGGML_OPENCL=ON \
             -DGGML_KQUANT=OFF \
             -DGGML_CPU=ON \

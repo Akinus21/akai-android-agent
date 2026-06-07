@@ -1,6 +1,5 @@
 package com.akinus21.akaiagent
 
-import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -9,7 +8,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -18,12 +16,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
     val hasConfig = viewModel.hasSavedConfig()
 
-    var queueUrl by remember { mutableStateOf(viewModel.savedQueueUrl.ifEmpty { "https://ollama.akinus21.com" }) }
+    var apiUrl by remember { mutableStateOf(viewModel.savedApiUrl.ifEmpty { "http://akai-net.akinus21.com" }) }
     var username by remember { mutableStateOf(viewModel.savedUsername) }
-    var expandedLog by remember { mutableStateOf(false) }
+    var showDirectConnect by remember { mutableStateOf(false) }
+    var directHubAddr by remember { mutableStateOf("akai-net.akinus21.com:50051") }
 
     Scaffold(
         topBar = {
@@ -54,11 +52,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     }
 
                     OutlinedTextField(
-                        value = queueUrl,
-                        onValueChange = { queueUrl = it },
-                        label = { Text("Queue URL") },
+                        value = apiUrl,
+                        onValueChange = { apiUrl = it },
+                        label = { Text("Hub API URL") },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = state !is WorkerState.Initializing
+                        enabled = state !is WorkerState.EnrollingVpn
                     )
 
                     OutlinedTextField(
@@ -66,17 +64,17 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         onValueChange = { username = it },
                         label = { Text("Username") },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = state !is WorkerState.Initializing
+                        enabled = state !is WorkerState.EnrollingVpn
                     )
 
                     Button(
-                        onClick = { viewModel.initAndStart(queueUrl, username) },
+                        onClick = { viewModel.initAndStart(apiUrl, username) },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = queueUrl.isNotBlank() && username.isNotBlank()
+                        enabled = apiUrl.isNotBlank() && username.isNotBlank()
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Initialize & Start")
+                        Text("Enroll & Start")
                     }
 
                     if (hasConfig && state is WorkerState.Idle) {
@@ -87,30 +85,53 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             Text("Start with Saved Config")
                         }
                     }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = { showDirectConnect = !showDirectConnect },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (showDirectConnect) "Hide direct connect" else "Direct connect (no VPN)")
+                    }
+
+                    if (showDirectConnect) {
+                        OutlinedTextField(
+                            value = directHubAddr,
+                            onValueChange = { directHubAddr = it },
+                            label = { Text("Hub address (host:port)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = {
+                                if (username.isNotBlank()) {
+                                    viewModel.directConnect(directHubAddr, username)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = directHubAddr.isNotBlank() && username.isNotBlank()
+                        ) {
+                            Text("Connect Directly")
+                        }
+                    }
                 }
 
-                is WorkerState.Initializing -> {
+                is WorkerState.EnrollingVpn -> {
                     CircularProgressIndicator()
-                    Text("Authenticating with queue...", style = MaterialTheme.typography.bodyMedium)
+                    Text("Enrolling VPN...", style = MaterialTheme.typography.bodyMedium)
                 }
 
-                is WorkerState.FetchingCerts -> {
-                    CircularProgressIndicator()
-                    Text("Fetching tunnel certificates...", style = MaterialTheme.typography.bodyMedium)
+                is WorkerState.EnrollingVpnFailed -> {
+                    Text("VPN enrollment failed. Check network and try again.", color = MaterialTheme.colorScheme.error)
                 }
 
-                is WorkerState.StartingRpc -> {
+                is WorkerState.StartingWorker -> {
                     CircularProgressIndicator()
-                    Text("Starting rpc-server...", style = MaterialTheme.typography.bodyMedium)
-                }
-
-                is WorkerState.Connecting -> {
-                    CircularProgressIndicator()
-                    Text("Connecting tunnel...", style = MaterialTheme.typography.bodyMedium)
+                    Text("Starting worker...", style = MaterialTheme.typography.bodyMedium)
                 }
 
                 is WorkerState.Running -> {
-                    val host = (state as WorkerState.Running).host
+                    val hubAddr = (state as WorkerState.Running).hubAddr
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -123,7 +144,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         ) {
                             Text("Connected", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Tunnel: $host",
+                                "Hub: $hubAddr",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontFamily = FontFamily.Monospace
                             )

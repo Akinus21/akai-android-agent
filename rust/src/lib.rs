@@ -65,6 +65,157 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSetDataDir
     }
 }
 
+// VPN enrollment: call hub's /auth/vpn endpoint, return hub VPN address
+#[no_mangle]
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeEnrollVpn(
+    mut env: JNIEnv,
+    _class: JClass,
+    api_url: JString,
+    username: JString,
+    worker_name: JString,
+) -> jstring {
+    let api_url: String = match env.get_string(&api_url) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let username: String = match env.get_string(&username) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let worker_name: String = match env.get_string(&worker_name) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    alog!(INFO, "VPN enrollment: url={}, user={}, worker={}", api_url, username, worker_name);
+
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let result = rt.block_on(async {
+        enroll_vpn(&api_url, &username, &worker_name).await
+    });
+
+    match result {
+        Ok(result_json) => {
+            alog!(INFO, "VPN enrolled: {}", result_json);
+            let parsed: serde_json::Value = serde_json::from_str(&result_json).unwrap_or_default();
+            let hub_addr = parsed["hub_vpn_addr"].as_str().unwrap_or("");
+            // Save config
+            let data_dir = get_data_dir();
+            let config = serde_json::json!({
+                "hub_addr": hub_addr,
+                "username": username,
+                "worker_name": worker_name,
+            });
+            let config_path = format!("{}/config.json", data_dir);
+            let _ = std::fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap_or_default());
+
+            env.new_string(result_json)
+                .map(|s| s.into_raw())
+                .unwrap_or(std::ptr::null_mut())
+        }
+        Err(e) => {
+            alog!(ERROR, "VPN enrollment failed: {e}");
+            std::ptr::null_mut()
+        }
+    }
+}
+
+async fn enroll_vpn(api_url: &str, username: &str, worker_name: &str) -> Result<String> {
+    let url = format!("{}/auth/vpn", api_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let resp = client.post(&url)
+        .json(&serde_json::json!({
+            "username": username,
+            "worker_name": worker_name,
+        }))
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Hub returned {}: {}", status, body);
+    }
+
+    let json: serde_json::Value = resp.json().await?;
+    let hub_vpn_addr = json["hub_vpn_addr"].as_str()
+        .ok_or_else(|| anyhow::anyhow!("missing hub_vpn_addr"))?;
+
+    let wg_config = json["wireguard_config"].as_str().unwrap_or("");
+
+    if !wg_config.is_empty() {
+        let data_dir = get_data_dir();
+        let wg_dir = format!("{}/wireguard", data_dir);
+        let _ = std::fs::create_dir_all(&wg_dir);
+        let wg_path = format!("{}/wg0.conf", wg_dir);
+        let _ = std::fs::write(&wg_path, wg_config);
+        alog!(INFO, "Saved WireGuard config to {}", wg_path);
+    }
+
+    let result = serde_json::json!({
+        "hub_vpn_addr": hub_vpn_addr,
+        "wireguard_config": wg_config,
+    });
+    Ok(result.to_string())
+}
+
+// Start the v2 worker (direct TCP to hub over VPN)
+#[no_mangle]
+pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeStartWorker(
+    mut env: JNIEnv,
+    _class: JClass,
+    hub_addr: JString,
+    worker_id: JString,
+    has_gpu: jboolean,
+    vram_gb_str: JString,
+    rpc_port: jint,
+) -> jint {
+    let hub_addr: String = match env.get_string(&hub_addr) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    let worker_id: String = match env.get_string(&worker_id) {
+        Ok(s) => s.into(),
+        Err(_) => return -2,
+    };
+    let vram_gb: f32 = match env.get_string(&vram_gb_str) {
+        Ok(s) => s.parse().unwrap_or(0.0),
+        Err(_) => 0.0,
+    };
+
+    let config = worker::WorkerConfig {
+        hub_addr,
+        worker_id,
+        has_gpu: has_gpu != 0,
+        vram_gb,
+        rpc_port: rpc_port as u16,
+    };
+
+    std::thread::spawn(|| {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                alog!(ERROR, "failed to create runtime: {}", e);
+                return;
+            }
+        };
+
+        rt.block_on(async {
+            if let Err(e) = worker::run_worker(config).await {
+                alog!(ERROR, "worker error: {}", e);
+            }
+        });
+    });
+
+    0
+}
+
+// Legacy v1 init (kept for backward compat)
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
     mut env: JNIEnv,
@@ -125,6 +276,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeInit(
     })
 }
 
+// Legacy v1 connect (kept for backward compat)
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeConnect(
     mut env: JNIEnv,
@@ -198,27 +350,6 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeSignReques
     }
 }
 
-fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_id: &str, tunnel_host: &str, tunnel_port: u16, model: &str) -> anyhow::Result<()> {
-    std::fs::create_dir_all(data_dir)?;
-
-    let config = serde_json::json!({
-        "queue_url": queue_url,
-        "username": username,
-        "worker_id": worker_id,
-        "tunnel_host": tunnel_host,
-        "tunnel_port": tunnel_port,
-        "model": model,
-    });
-
-    let config_path = format!("{}/config.json", data_dir);
-    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
-
-    let prefs_path = format!("{}/android-prefs.json", data_dir);
-    std::fs::write(&prefs_path, serde_json::to_string_pretty(&config)?)?;
-
-    Ok(())
-}
-
 #[no_mangle]
 pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeHeartbeat(
     mut env: JNIEnv,
@@ -256,7 +387,6 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeHeartbeat(
     match result {
         Ok(resp) => {
             let model = resp.model;
-            // Update config with new model
             if let Ok(cfg) = std::fs::read_to_string(format!("{}/android-prefs.json", data_dir)) {
                 if let Ok(mut obj) = serde_json::from_str::<serde_json::Value>(&cfg) {
                     obj["model"] = serde_json::json!(model);
@@ -275,51 +405,19 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeHeartbeat(
     }
 }
 
-#[no_mangle]
-pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeStartWorker(
-    mut env: JNIEnv,
-    _class: JClass,
-    hub_addr: JString,
-    worker_id: JString,
-    layer_offset: jint,
-    num_layers: jint,
-) -> jint {
-    let hub_addr: String = match env.get_string(&hub_addr) {
-        Ok(s) => s.into(),
-        Err(_) => return -1,
-    };
-    let worker_id: String = match env.get_string(&worker_id) {
-        Ok(s) => s.into(),
-        Err(_) => return -2,
-    };
-
-    let config = worker::WorkerConfig {
-        hub_addr,
-        worker_id,
-        has_gpu: false,
-        vram_gb: 0.0,
-        layer_offset: layer_offset as usize,
-        num_layers: num_layers as usize,
-    };
-
-    alog!(INFO, "Starting worker: hub={}, layers={}-{}",
-          config.hub_addr, config.layer_offset, config.layer_offset + config.num_layers);
-
-    std::thread::spawn(|| {
-        let rt = match tokio::runtime::Runtime::new() {
-            Ok(rt) => rt,
-            Err(e) => {
-                alog!(ERROR, "failed to create runtime: {}", e);
-                return;
-            }
-        };
-
-        rt.block_on(async {
-            if let Err(e) = worker::run_worker(config).await {
-                alog!(ERROR, "worker error: {}", e);
-            }
-        });
+fn save_config_android(data_dir: &str, queue_url: &str, username: &str, worker_id: &str, tunnel_host: &str, tunnel_port: u16, model: &str) -> anyhow::Result<()> {
+    std::fs::create_dir_all(data_dir)?;
+    let config = serde_json::json!({
+        "queue_url": queue_url,
+        "username": username,
+        "worker_id": worker_id,
+        "tunnel_host": tunnel_host,
+        "tunnel_port": tunnel_port,
+        "model": model,
     });
-
-    0
+    let config_path = format!("{}/config.json", data_dir);
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    let prefs_path = format!("{}/android-prefs.json", data_dir);
+    std::fs::write(&prefs_path, serde_json::to_string_pretty(&config)?)?;
+    Ok(())
 }

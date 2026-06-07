@@ -14,9 +14,8 @@ class WorkerService : Service() {
     private val CHANNEL_ID = "akai_agent_channel"
     private val NOTIFICATION_ID = 1
 
-    private var tunnelThread: Thread? = null
+    private var workerThread: Thread? = null
     private var rpcProcess: Process? = null
-    private var tunnelResult: Int = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -34,12 +33,10 @@ class WorkerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun startWorker(intent: Intent) {
-        val host = intent.getStringExtra("tunnel_host") ?: run { stopSelf(); return }
-        val port = intent.getIntExtra("tunnel_port", 443)
-        val workerId = intent.getStringExtra("worker_id") ?: run { stopSelf(); return }
+        val mode = intent.getStringExtra("mode") ?: "v2"
         val rpcPort = intent.getIntExtra("rpc_port", 50052)
 
-        showNotification("Starting worker...")
+        showNotification("Starting worker ($mode)...")
 
         try {
             rpcProcess = RpcServerManager.start(this, rpcPort)
@@ -50,18 +47,44 @@ class WorkerService : Service() {
             return
         }
 
+        when (mode) {
+            "v1" -> startTunnelWorker(intent)
+            else -> startV2Worker(intent)
+        }
+    }
+
+    private fun startV2Worker(intent: Intent) {
+        val hubAddr = intent.getStringExtra("hub_addr") ?: run { stopSelf(); return }
+        val workerId = intent.getStringExtra("worker_id") ?: run { stopSelf(); return }
+        val hasGpu = intent.getBooleanExtra("has_gpu", false)
+        val vramGb = intent.getStringExtra("vram_gb") ?: "0.0"
+
+        Thread {
+            Log.i(TAG, "Starting v2 worker: hub=$hubAddr, worker=$workerId, gpu=$hasGpu")
+            val result = TunnelNative.startWorker(hubAddr, workerId, hasGpu, vramGb, 50052)
+            Log.i(TAG, "v2 worker exited with result: $result")
+        }.also { workerThread = it }.start()
+
+        showNotification("Running: $hubAddr")
+    }
+
+    private fun startTunnelWorker(intent: Intent) {
+        val host = intent.getStringExtra("tunnel_host") ?: "tunnel.akinus21.com"
+        val port = intent.getIntExtra("tunnel_port", 443)
+        val workerId = intent.getStringExtra("worker_id") ?: run { stopSelf(); return }
+
         Thread {
             Log.i(TAG, "Starting tunnel thread to $host:$port")
-            tunnelResult = TunnelNative.connect(host, port, workerId, rpcPort)
-            Log.i(TAG, "Tunnel exited with result: $tunnelResult")
-        }.also { tunnelThread = it }.start()
+            val result = TunnelNative.connect(host, port, workerId, 50052)
+            Log.i(TAG, "Tunnel exited with result: $result")
+        }.also { workerThread = it }.start()
 
         showNotification("Running: $host")
     }
 
     private fun stopWorker() {
-        tunnelThread?.interrupt()
-        tunnelThread = null
+        workerThread?.interrupt()
+        workerThread = null
         RpcServerManager.stop()
         rpcProcess = null
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -102,13 +125,13 @@ class WorkerService : Service() {
 
     override fun onDestroy() {
         RpcServerManager.stop()
-        tunnelThread?.interrupt()
+        workerThread?.interrupt()
         super.onDestroy()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         RpcServerManager.stop()
-        tunnelThread?.interrupt()
+        workerThread?.interrupt()
         super.onTaskRemoved(rootIntent)
     }
 }

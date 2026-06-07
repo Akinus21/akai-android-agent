@@ -84,7 +84,7 @@ object RpcServerManager {
         val binary = ensureBinary(context)
         val execBinary = copyToTmpAndGetPath(context, binary)
 
-        val cmd = listOf(execBinary.absolutePath, "--host", "127.0.0.1", "--port", port.toString())
+        val cmd = listOf(execBinary.absolutePath, "--host", "0.0.0.0", "--port", port.toString(), "-ngl", "0")
         Log.i(TAG, "Starting rpc-server: $cmd")
 
         try {
