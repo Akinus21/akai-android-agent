@@ -6,7 +6,7 @@ mod worker;
 use jni::objects::JClass;
 use jni::objects::JString;
 use jni::JNIEnv;
-use jni::sys::{jint, jstring};
+use jni::sys::{jboolean, jint, jstring};
 
 use std::sync::OnceLock;
 
@@ -124,7 +124,7 @@ pub extern "system" fn Java_com_akinus21_akaiagent_TunnelNative_nativeEnrollVpn(
     }
 }
 
-async fn enroll_vpn(api_url: &str, username: &str, worker_name: &str) -> Result<String> {
+async fn enroll_vpn(api_url: &str, username: &str, worker_name: &str) -> anyhow::Result<String> {
     let url = format!("{}/auth/vpn", api_url.trim_end_matches('/'));
     let client = reqwest::Client::new();
     let resp = client.post(&url)

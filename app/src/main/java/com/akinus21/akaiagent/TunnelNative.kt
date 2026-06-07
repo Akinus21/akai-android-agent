@@ -64,33 +64,3 @@ object TunnelNative {
         return nativeStartWorker(hubAddr, workerId, hasGpu, vramGb, rpcPort)
     }
 }
-    }
-
-    fun init(queueUrl: String, username: String, deviceName: String): Int {
-        return nativeInit(queueUrl, username, deviceName)
-    }
-
-    fun connect(host: String, port: Int, workerId: String, rpcPort: Int): Int {
-        return nativeConnect(host, port, workerId, rpcPort)
-    }
-
-    fun getPublicKey(): String? {
-        return nativeGetPublicKey()
-    }
-
-    fun signRequest(message: String): String? {
-        return nativeSignRequest(message)
-    }
-
-    fun heartbeat(queueUrl: String, username: String, workerId: String): String? {
-        return nativeHeartbeat(queueUrl, username, workerId)
-    }
-
-    fun enrollVpn(apiUrl: String, username: String, workerName: String): String? {
-        return nativeEnrollVpn(apiUrl, username, workerName)
-    }
-
-    fun startWorker(hubAddr: String, workerId: String, hasGpu: Boolean, vramGb: String, rpcPort: Int): Int {
-        return nativeStartWorker(hubAddr, workerId, hasGpu, vramGb, rpcPort)
-    }
-}
