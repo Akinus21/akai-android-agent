@@ -87,6 +87,8 @@ pub struct HeartbeatResponse {
     #[serde(default)]
     pub model_url: String,
     #[serde(default)]
+    pub model_hash: String,
+    #[serde(default)]
     pub pipeline: Option<PipelineInfo>,
 }
 
